@@ -5,10 +5,14 @@ import io.agentscope.core.message.ToolResultBlock;
 import io.agentscope.core.message.ToolUseBlock;
 import io.agentscope.core.tool.ToolCallParam;
 import io.agentscope.core.tool.Toolkit;
+import io.agentscope.core.agent.RuntimeContext;
+import io.github.sandking.fastmcp.agentscope.FastMcpAgentScopeTools;
+import io.github.sandking.fastmcp.agentscope.FastMcpToolMapping;
 import io.github.sandking.fastmcp.FastMcp;
 import io.github.sandking.fastmcp.FastMcpServer;
 import io.github.sandking.fastmcp.JsonSchemas;
 import io.github.sandking.fastmcp.ToolResult;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.util.Map;
 
 public final class FastMcpAgentScopeExample {
@@ -16,26 +20,62 @@ public final class FastMcpAgentScopeExample {
     }
 
     public static void main(String[] args) {
-        FastMcpServer server = FastMcp.server("AgentScope Example");
-        var schema = JsonSchemas.object();
-        JsonSchemas.addProperty(schema, "name", JsonSchemas.string());
-        JsonSchemas.require(schema, "name");
-        server.tool("greet", "Create a greeting", schema,
-                arguments -> ToolResult.text("Hello " + arguments.getString("name") + "!"));
+        FastMcpServer server = FastMcp.server("AgentScope Example")
+                .tool("getOrdersByUserId", "Internal raw order lookup by user id", rawOrderSchema(),
+                        arguments -> ToolResult.text("orders for " + arguments.getString("userId")
+                                + " with status " + arguments.getString("status")));
 
         Toolkit toolkit = new Toolkit();
-        FastMcpAgentScopeTools.register(toolkit, server);
+        FastMcpAgentScopeTools.register(toolkit, server, FastMcpToolMapping.builder("getOrdersByUserId")
+                .name("get_my_orders")
+                .description("Get orders for the authenticated user.")
+                .inputSchema(virtualOrderSchema())
+                .injectArgument("userId", param -> param.getRuntimeContext().get(UserContext.class).userId())
+                .readOnly(true)
+                .concurrencySafe(true)
+                .build());
 
         ToolResultBlock result = toolkit.callTool(ToolCallParam.builder()
                 .toolUseBlock(ToolUseBlock.builder()
                         .id("call-1")
-                        .name("greet")
-                        .input(Map.of("name", "Ada"))
-                        .content("{\"name\":\"Ada\"}")
+                        .name("get_my_orders")
+                        .input(Map.of("status", "PAID"))
+                        .content("{\"status\":\"PAID\"}")
                         .build())
-                .input(Map.of("name", "Ada"))
+                .input(Map.of("status", "PAID"))
+                .runtimeContext(RuntimeContext.builder()
+                        .put(UserContext.class, new UserContext("user-123"))
+                        .build())
                 .build()).block();
 
         System.out.println(((TextBlock) result.getOutput().get(0)).getText());
+    }
+
+    private static ObjectNode rawOrderSchema() {
+        ObjectNode schema = JsonSchemas.object();
+        JsonSchemas.addProperty(schema, "userId", JsonSchemas.string());
+        JsonSchemas.addProperty(schema, "status", JsonSchemas.string());
+        JsonSchemas.require(schema, "userId");
+        JsonSchemas.require(schema, "status");
+        return schema;
+    }
+
+    private static ObjectNode virtualOrderSchema() {
+        ObjectNode schema = JsonSchemas.object();
+        JsonSchemas.addProperty(schema, "status", JsonSchemas.string());
+        JsonSchemas.require(schema, "status");
+        return schema;
+    }
+
+    private static final class UserContext {
+        private final String userId;
+
+        private UserContext(String userId) {
+            this.userId = userId;
+        }
+
+        private String userId() {
+            return userId;
+        }
     }
 }

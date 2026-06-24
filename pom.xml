@@ -88,8 +88,15 @@
 
     <profiles>
         <profile>
+            <id>agentscope</id>
+            <modules>
+                <module>fastmcp-agentscope-adapter</module>
+            </modules>
+        </profile>
+        <profile>
             <id>examples</id>
             <modules>
+                <module>fastmcp-agentscope-adapter</module>
                 <module>examples/agentscope-adapter</module>
             </modules>
         </profile>

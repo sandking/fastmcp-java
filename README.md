@@ -9,6 +9,10 @@ lifecycle details. This repository starts the Java port from the smallest useful
 server core: register tools, list tools, call tools in memory, and wire those
 tools into Spring Boot applications.
 
+The AgentScope adapter adds the FastMCP-specific safety layer: expose a
+model-facing virtual tool, transform its arguments, inject protected arguments
+from server-side runtime context, then delegate back to the raw tool.
+
 ## Current scope
 
 Implemented in this initial repository baseline:
@@ -21,6 +25,7 @@ Implemented in this initial repository baseline:
 - Tool result content, structured content, and metadata
 - Spring Boot starter that creates a `FastMcpServer` bean and registers Spring
   beans with `@McpTool` methods
+- AgentScope adapter module for safe virtual tools and Toolkit registration
 - Unit tests and GitHub Actions CI
 
 Not implemented yet:
@@ -138,31 +143,55 @@ FastMcpToolCustomizer pingTool() {
 mvn test
 ```
 
-## AgentScope integration example
+## AgentScope adapter
 
 AgentScope is intentionally kept out of the core and Spring Boot starter
-dependencies. The repository includes an experimental example that adapts
-`FastMcpServer` tools into an AgentScope `Toolkit`.
+dependencies. Use `fastmcp-agentscope-adapter` when the runtime is AgentScope
+Java and the model should call safe virtual tools instead of raw backend tools
+or raw AgentScope MCP tools.
 
-AgentScope Java 2.x requires JDK 17 or newer, so the example is behind an
+AgentScope Java 2.x requires JDK 17 or newer, so the adapter is behind an
 optional Maven profile:
+
+```bash
+mvn -Pagentscope test
+```
+
+The core path is:
+
+```text
+raw FastMCP tool
+  -> FastMcpToolMapping
+  -> safe virtual tool schema
+  -> AgentScope ToolBase
+  -> Toolkit.callTool(...)
+  -> injected protected arguments
+  -> raw FastMcpServer.callTool(...)
+```
+
+For example, a raw backend tool can remain `getOrdersByUserId(userId, status)`,
+while the model only sees `get_my_orders(status)`. The adapter injects `userId`
+from `RuntimeContext` before delegating to the raw tool.
+
+The same mapping can also wrap a raw AgentScope `AgentTool`, including tools
+created from AgentScope MCP clients such as `mcp__orders__getOrdersByUserId`,
+without registering that raw tool name into the model-facing `Toolkit`.
+
+```java
+FastMcpAgentScopeTools.register(toolkit, server, FastMcpToolMapping.builder("getOrdersByUserId")
+    .name("get_my_orders")
+    .description("Get orders for the authenticated user.")
+    .inputSchema(virtualOrderSchema)
+    .injectArgument("userId", param -> param.getRuntimeContext().get(UserContext.class).userId())
+    .readOnly(true)
+    .build());
+```
+
+Run the example with:
 
 ```bash
 mvn -Pexamples test
 ```
-
-The example lives in `examples/agentscope-adapter` and demonstrates this path:
-
-```text
-FastMcpServer
-  -> ToolDefinition
-  -> AgentScope ToolBase
-  -> Toolkit.callTool(...)
-  -> FastMcpServer.callTool(...)
-```
-
-This is not a published adapter module yet. It is a validation point for the
-integration shape.
 
 ## Package layout
 
@@ -184,9 +213,14 @@ fastmcp-spring-boot-starter
     FastMcpProperties         fastmcp.* configuration properties
     FastMcpToolCustomizer     programmatic tool registration hook
 
+fastmcp-agentscope-adapter
+  io.github.sandking.fastmcp.agentscope
+    FastMcpAgentScopeTools    registers FastMCP tools into AgentScope Toolkit
+    FastMcpToolMapping        virtual-to-raw tool and argument mapping
+    ToolArgumentResolver      resolves injected protected arguments
+
 examples/agentscope-adapter
   io.github.sandking.fastmcp.examples.agentscope
-    FastMcpAgentScopeTools    experimental Toolkit adapter example
     FastMcpAgentScopeExample  minimal runnable example class
 ```
 

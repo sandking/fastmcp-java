@@ -22,7 +22,7 @@ jobs:
       - name: Test
         run: mvn -B test
 
-  examples-agentscope:
+  agentscope:
     runs-on: ubuntu-latest
     steps:
       - name: Check out
@@ -34,6 +34,9 @@ jobs:
           distribution: temurin
           java-version: "17"
           cache: maven
+
+      - name: Test AgentScope adapter
+        run: mvn -B -Pagentscope test
 
       - name: Test AgentScope example
         run: mvn -B -Pexamples test

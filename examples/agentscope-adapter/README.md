@@ -1,8 +1,16 @@
 # FastMCP AgentScope Adapter Example
 
-This example validates that FastMCP Java tools can be registered into an
-AgentScope `Toolkit` without adding AgentScope as a dependency of `fastmcp-core`
-or `fastmcp-spring-boot-starter`.
+This example validates the safe virtual tool path:
+
+```text
+raw FastMCP tool with userId
+  -> virtual AgentScope tool without userId
+  -> userId injected from server-side RuntimeContext
+  -> delegate back to the raw FastMCP tool
+```
+
+The goal is to avoid exposing identity-sensitive arguments such as `userId`,
+`memberId`, or `tenantId` to the model.
 
 Run it from the repository root with JDK 17 or newer:
 
@@ -10,5 +18,5 @@ Run it from the repository root with JDK 17 or newer:
 mvn -Pexamples test
 ```
 
-The adapter is intentionally local to this example. If the integration shape
-stays useful, it can later be promoted to a separate optional module.
+The adapter implementation lives in `fastmcp-agentscope-adapter`. The example is
+only a runnable usage check.
