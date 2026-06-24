@@ -21,3 +21,19 @@ jobs:
 
       - name: Test
         run: mvn -B test
+
+  examples-agentscope:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: maven
+
+      - name: Test AgentScope example
+        run: mvn -B -Pexamples test

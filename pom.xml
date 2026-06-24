@@ -85,4 +85,13 @@
             </plugins>
         </pluginManagement>
     </build>
+
+    <profiles>
+        <profile>
+            <id>examples</id>
+            <modules>
+                <module>examples/agentscope-adapter</module>
+            </modules>
+        </profile>
+    </profiles>
 </project>

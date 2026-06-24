@@ -138,6 +138,32 @@ FastMcpToolCustomizer pingTool() {
 mvn test
 ```
 
+## AgentScope integration example
+
+AgentScope is intentionally kept out of the core and Spring Boot starter
+dependencies. The repository includes an experimental example that adapts
+`FastMcpServer` tools into an AgentScope `Toolkit`.
+
+AgentScope Java 2.x requires JDK 17 or newer, so the example is behind an
+optional Maven profile:
+
+```bash
+mvn -Pexamples test
+```
+
+The example lives in `examples/agentscope-adapter` and demonstrates this path:
+
+```text
+FastMcpServer
+  -> ToolDefinition
+  -> AgentScope ToolBase
+  -> Toolkit.callTool(...)
+  -> FastMcpServer.callTool(...)
+```
+
+This is not a published adapter module yet. It is a validation point for the
+integration shape.
+
 ## Package layout
 
 ```text
@@ -157,6 +183,11 @@ fastmcp-spring-boot-starter
     FastMcpAutoConfiguration  Spring Boot auto-configuration
     FastMcpProperties         fastmcp.* configuration properties
     FastMcpToolCustomizer     programmatic tool registration hook
+
+examples/agentscope-adapter
+  io.github.sandking.fastmcp.examples.agentscope
+    FastMcpAgentScopeTools    experimental Toolkit adapter example
+    FastMcpAgentScopeExample  minimal runnable example class
 ```
 
 ## Relationship to FastMCP Python
