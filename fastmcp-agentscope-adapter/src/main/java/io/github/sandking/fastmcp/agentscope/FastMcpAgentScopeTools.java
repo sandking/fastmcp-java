@@ -11,10 +11,14 @@ import io.agentscope.core.tool.AgentTool;
 import io.agentscope.core.tool.ToolBase;
 import io.agentscope.core.tool.ToolCallParam;
 import io.agentscope.core.tool.Toolkit;
+import io.agentscope.core.tool.mcp.McpClientWrapper;
+import io.agentscope.core.tool.mcp.McpTool;
 import io.github.sandking.fastmcp.FastMcpServer;
 import io.github.sandking.fastmcp.ToolDefinition;
 import io.github.sandking.fastmcp.ToolException;
 import io.github.sandking.fastmcp.ToolResult;
+import io.modelcontextprotocol.spec.McpSchema;
+import java.util.Collections;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -55,6 +59,23 @@ public final class FastMcpAgentScopeTools {
             throw new IllegalArgumentException("Raw AgentScope tool name does not match mapping: " + mapping.rawName());
         }
         toolkit.registerAgentTool(new AgentScopeToolAdapter(rawTool, mapping));
+    }
+
+    public static Mono<Void> registerMcpClient(
+            Toolkit toolkit, McpClientWrapper client, FastMcpToolMapping... mappings) {
+        return registerMcpClient(toolkit, client, List.of(mappings));
+    }
+
+    public static Mono<Void> registerMcpClient(
+            Toolkit toolkit, McpClientWrapper client, List<FastMcpToolMapping> mappings) {
+        Objects.requireNonNull(toolkit, "toolkit must not be null");
+        Objects.requireNonNull(client, "client must not be null");
+        Objects.requireNonNull(mappings, "mappings must not be null");
+
+        return client.initialize()
+                .then(client.listTools())
+                .doOnNext(tools -> registerMappedMcpTools(toolkit, client, tools, mappings))
+                .then();
     }
 
     public static void register(Toolkit toolkit, FastMcpServer server, List<FastMcpToolMapping> mappings) {
@@ -153,6 +174,46 @@ public final class FastMcpAgentScopeTools {
             }
             return builder.build();
         }
+    }
+
+    private static void registerMappedMcpTools(
+            Toolkit toolkit,
+            McpClientWrapper client,
+            List<McpSchema.Tool> tools,
+            List<FastMcpToolMapping> mappings) {
+        Map<String, McpSchema.Tool> rawTools = new LinkedHashMap<>();
+        for (McpSchema.Tool tool : tools) {
+            rawTools.put(tool.name(), tool);
+            rawTools.put(namespacedMcpToolName(client, tool.name()), tool);
+        }
+
+        for (FastMcpToolMapping mapping : mappings) {
+            McpSchema.Tool rawTool = rawTools.get(Objects.requireNonNull(mapping, "mapping must not be null").rawName());
+            if (rawTool == null) {
+                throw new IllegalArgumentException("Raw MCP tool not found: " + mapping.rawName());
+            }
+            toolkit.registerAgentTool(new AgentScopeToolAdapter(toMcpTool(client, rawTool), mapping));
+        }
+    }
+
+    private static AgentTool toMcpTool(McpClientWrapper client, McpSchema.Tool tool) {
+        boolean readOnly = tool.annotations() != null && Boolean.TRUE.equals(tool.annotations().readOnlyHint());
+        Map<String, Object> outputSchema = tool.outputSchema() == null
+                ? null
+                : new LinkedHashMap<>(tool.outputSchema());
+        return new McpTool(
+                tool.name(),
+                tool.description() == null ? "" : tool.description(),
+                McpTool.convertMcpSchemaToParameters(tool.inputSchema(), Collections.emptySet()),
+                outputSchema,
+                client,
+                null,
+                client.getName(),
+                readOnly);
+    }
+
+    private static String namespacedMcpToolName(McpClientWrapper client, String toolName) {
+        return "mcp__" + client.getName() + "__" + toolName;
     }
 
     private static String description(ToolDefinition rawTool, FastMcpToolMapping mapping) {

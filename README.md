@@ -187,6 +187,30 @@ FastMcpAgentScopeTools.register(toolkit, server, FastMcpToolMapping.builder("get
     .build());
 ```
 
+When tools come from an AgentScope `McpClientWrapper`, let AgentScope keep
+handling MCP protocol details and register only the mapped virtual tools:
+
+```java
+McpClientWrapper ordersMcpClient = mcpClientFactory.create(serverProperties);
+
+FastMcpAgentScopeTools.registerMcpClient(toolkit, ordersMcpClient, List.of(
+    FastMcpToolMapping.builder("mcp__orders__getOrdersByUserId")
+        .name("get_my_orders")
+        .description("Get orders for the authenticated user.")
+        .inputSchema(virtualOrderSchema)
+        .injectArgument("userId",
+            param -> param.getRuntimeContext().get(UserContext.class).userId())
+        .readOnly(true)
+        .build()
+)).block();
+```
+
+`registerMcpClient` calls `initialize()` and `listTools()` on the wrapper, creates
+raw AgentScope `McpTool` delegates internally, and registers only the virtual
+tools into the supplied `Toolkit`. The mapping raw name may be the MCP
+`tools/list` name, or the AgentScope-style namespaced form
+`mcp__<clientName>__<toolName>`.
+
 Run the example with:
 
 ```bash

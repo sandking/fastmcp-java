@@ -13,11 +13,14 @@ import io.agentscope.core.message.ToolUseBlock;
 import io.agentscope.core.tool.ToolBase;
 import io.agentscope.core.tool.ToolCallParam;
 import io.agentscope.core.tool.Toolkit;
+import io.agentscope.core.tool.mcp.McpClientWrapper;
 import io.github.sandking.fastmcp.FastMcp;
 import io.github.sandking.fastmcp.FastMcpServer;
 import io.github.sandking.fastmcp.JsonSchemas;
 import io.github.sandking.fastmcp.ToolException;
 import io.github.sandking.fastmcp.ToolResult;
+import io.modelcontextprotocol.spec.McpSchema;
+import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 import reactor.core.publisher.Mono;
@@ -106,6 +109,45 @@ class FastMcpAgentScopeToolsTest {
         assertEquals("get_my_orders", result.getName());
     }
 
+    @Test
+    void registersVirtualToolsFromMcpClientWithoutExposingRawMcpTools() {
+        FakeMcpClientWrapper wrapper = new FakeMcpClientWrapper("orders");
+        Toolkit toolkit = new Toolkit();
+
+        FastMcpAgentScopeTools.registerMcpClient(toolkit, wrapper, List.of(FastMcpToolMapping
+                .builder("mcp__orders__getOrdersByUserId")
+                .name("get_my_orders")
+                .description("Get orders for the authenticated user.")
+                .inputSchema(virtualOrderSchema())
+                .injectArgument("userId", param -> param.getRuntimeContext().get(UserContext.class).userId())
+                .readOnly(true)
+                .build())).block();
+
+        assertTrue(wrapper.initialized);
+        assertEquals(1, wrapper.listToolsCalls);
+        assertTrue(toolkit.getToolNames().contains("get_my_orders"));
+        assertFalse(toolkit.getToolNames().contains("getOrdersByUserId"));
+        assertFalse(toolkit.getToolNames().contains("mcp__orders__getOrdersByUserId"));
+
+        ToolResultBlock result = toolkit.callTool(ToolCallParam.builder()
+                .toolUseBlock(ToolUseBlock.builder()
+                        .id("call-4")
+                        .name("get_my_orders")
+                        .input(Map.of("status", "PAID"))
+                        .content("{\"status\":\"PAID\"}")
+                        .build())
+                .input(Map.of("status", "PAID"))
+                .runtimeContext(RuntimeContext.builder()
+                        .put(UserContext.class, new UserContext("user-123"))
+                        .build())
+                .build()).block();
+
+        assertEquals("mcp orders for user-123 with status PAID",
+                ((TextBlock) result.getOutput().get(0)).getText());
+        assertEquals("getOrdersByUserId", wrapper.lastToolName);
+        assertEquals(Map.of("status", "PAID", "userId", "user-123"), wrapper.lastArguments);
+    }
+
     private FastMcpServer orderServer() {
         ObjectNode rawSchema = JsonSchemas.object();
         JsonSchemas.addProperty(rawSchema, "userId", JsonSchemas.string());
@@ -170,6 +212,63 @@ class FastMcpAgentScopeToolsTest {
                             .text("raw MCP orders for " + param.getInput().get("userId")
                                     + " with status " + param.getInput().get("status"))
                             .build()));
+        }
+    }
+
+    private static final class FakeMcpClientWrapper extends McpClientWrapper {
+        private boolean initialized;
+        private int listToolsCalls;
+        private String lastToolName;
+        private Map<String, Object> lastArguments;
+
+        private FakeMcpClientWrapper(String name) {
+            super(name);
+        }
+
+        @Override
+        public Mono<Void> initialize() {
+            initialized = true;
+            return Mono.empty();
+        }
+
+        @Override
+        public Mono<List<McpSchema.Tool>> listTools() {
+            listToolsCalls++;
+            return Mono.just(List.of(McpSchema.Tool.builder()
+                    .name("getOrdersByUserId")
+                    .description("Raw MCP order lookup by user id")
+                    .inputSchema(new McpSchema.JsonSchema(
+                            "object",
+                            Map.of(
+                                    "userId", Map.of("type", "string"),
+                                    "status", Map.of("type", "string")),
+                            List.of("userId", "status"),
+                            false,
+                            null,
+                            null))
+                    .annotations(new McpSchema.ToolAnnotations(null, true, false, true, false, false))
+                    .build()));
+        }
+
+        @Override
+        public Mono<McpSchema.CallToolResult> callTool(String toolName, Map<String, Object> arguments) {
+            return callTool(toolName, arguments, Map.of());
+        }
+
+        @Override
+        public Mono<McpSchema.CallToolResult> callTool(
+                String toolName, Map<String, Object> arguments, Map<String, Object> meta) {
+            lastToolName = toolName;
+            lastArguments = arguments;
+            return Mono.just(McpSchema.CallToolResult.builder()
+                    .addTextContent("mcp orders for " + arguments.get("userId")
+                            + " with status " + arguments.get("status"))
+                    .isError(false)
+                    .build());
+        }
+
+        @Override
+        public void close() {
         }
     }
 }
