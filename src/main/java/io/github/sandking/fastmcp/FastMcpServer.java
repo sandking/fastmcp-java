@@ -10,7 +10,7 @@ import java.util.Objects;
 
 public final class FastMcpServer {
     private final String name;
-    private final Map<String, McpTool> tools = new LinkedHashMap<>();
+    private final Map<String, ToolDefinition> tools = new LinkedHashMap<>();
 
     FastMcpServer(String name) {
         this.name = requireText(name, "name");
@@ -21,7 +21,7 @@ public final class FastMcpServer {
     }
 
     public FastMcpServer tool(String name, String description, JsonNode inputSchema, ToolHandler handler) {
-        McpTool tool = new McpTool(name, description, inputSchema, handler);
+        ToolDefinition tool = new ToolDefinition(name, description, inputSchema, handler);
         if (tools.containsKey(tool.name())) {
             throw new IllegalArgumentException("Tool already registered: " + tool.name());
         }
@@ -29,12 +29,12 @@ public final class FastMcpServer {
         return this;
     }
 
-    public List<McpTool> listTools() {
+    public List<ToolDefinition> listTools() {
         return Collections.unmodifiableList(new ArrayList<>(tools.values()));
     }
 
     public ToolResult callTool(String name, Map<String, ?> arguments) {
-        McpTool tool = tools.get(requireText(name, "name"));
+        ToolDefinition tool = tools.get(requireText(name, "name"));
         if (tool == null) {
             throw new ToolNotFoundException("Tool not found: " + name);
         }

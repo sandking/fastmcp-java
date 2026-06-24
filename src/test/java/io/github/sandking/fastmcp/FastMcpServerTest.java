@@ -20,7 +20,7 @@ class FastMcpServerTest {
                 .tool("echo", "Echo the input text", inputSchema,
                         arguments -> ToolResult.text(arguments.getString("text")));
 
-        List<McpTool> tools = server.listTools();
+        List<ToolDefinition> tools = server.listTools();
 
         assertEquals("Echo Server", server.name());
         assertEquals(1, tools.size());

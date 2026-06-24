@@ -15,6 +15,7 @@ Implemented in this initial repository baseline:
 - Java 11 Maven project
 - Apache-2.0 license
 - Tool registration with JSON Schema input metadata
+- Annotation-based tool registration for service objects
 - In-memory tool listing and invocation
 - Tool result content, structured content, and metadata
 - Unit tests and GitHub Actions CI
@@ -49,6 +50,33 @@ ToolResult result = server.callTool("echo", Map.of("text", "hello"));
 System.out.println(result.content());
 ```
 
+## Annotation API
+
+For Spring Boot services, keep your business methods on normal beans and register
+the bean instance with FastMCP. The core package does not depend on Spring, so the
+same API also works in plain Java tests.
+
+```java
+import io.github.sandking.fastmcp.AnnotatedToolRegistrar;
+import io.github.sandking.fastmcp.FastMcp;
+import io.github.sandking.fastmcp.FastMcpServer;
+import io.github.sandking.fastmcp.McpTool;
+import io.github.sandking.fastmcp.ToolParam;
+
+class GreetingService {
+    @McpTool(name = "greet", description = "Create a greeting")
+    String greet(@ToolParam(description = "Name to greet") String name) {
+        return "Hello " + name + "!";
+    }
+}
+
+FastMcpServer server = FastMcp.server("Spring Boot MCP");
+AnnotatedToolRegistrar.register(server, new GreetingService());
+```
+
+If parameter names are not retained by the application compiler, set
+`@ToolParam(name = "...")` explicitly or compile with `-parameters`.
+
 ## Build
 
 ```bash
@@ -61,7 +89,9 @@ mvn test
 io.github.sandking.fastmcp
   FastMcp          entry point
   FastMcpServer    in-memory server core
-  McpTool          tool metadata and handler binding
+  McpTool          method annotation for service-object tools
+  ToolParam        method-parameter annotation
+  ToolDefinition   tool metadata and handler binding
   ToolArguments    typed argument access
   ToolResult       content, structured content, and metadata
   JsonSchemas      small JSON Schema helper
