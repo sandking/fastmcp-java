@@ -20,7 +20,7 @@ public final class AnnotatedService {
 
     static final class GreetingService {
         @McpTool(name = "greet", description = "Create a greeting")
-        String greet(@ToolParam(description = "Name to greet") String name) {
+        String greet(@ToolParam(name = "name", description = "Name to greet") String name) {
             return "Hello " + name + "!";
         }
     }
