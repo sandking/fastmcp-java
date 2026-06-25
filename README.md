@@ -331,13 +331,13 @@ Spring Boot support module.
 The `examples` profile contains runnable checks for the three current
 integration paths:
 
-- `examples/agentscope-adapter`: registers a virtual AgentScope tool into a
+- `fastmcp-examples/agentscope-adapter`: registers a virtual AgentScope tool into a
   `Toolkit`, maps `status -> orderStatus`, injects `userId` and `tenantId` from
   `RuntimeContext`, and rejects model-supplied protected arguments.
-- `examples/spring-ai-adapter`: wraps an existing raw Spring AI
+- `fastmcp-examples/spring-ai-adapter`: wraps an existing raw Spring AI
   `ToolCallbackProvider` as a safe provider and injects protected arguments from
   `ToolContext`.
-- `examples/spring-ai-boot-starter`: binds `fastmcp.safe.*`, declares resolver
+- `fastmcp-examples/spring-ai-boot-starter`: binds `fastmcp.safe.*`, declares resolver
   beans such as `currentUserId`, and verifies that the starter publishes the
   primary `fastMcpSafeToolCallbackProvider` from an existing raw provider. The
   managed MCP client path is covered by starter unit tests until a real MCP
@@ -401,15 +401,15 @@ fastmcp-spring-ai-boot-starter
     FastMcpSpringAiManagedClientFactory creates managed Spring AI MCP clients
     FastMcpManagedSpringAiToolCallbackProvider closes managed clients
 
-examples/agentscope-adapter
+fastmcp-examples/agentscope-adapter
   io.github.sandking.fastmcp.examples.agentscope
     FastMcpAgentScopeExample  Toolkit registration and RuntimeContext injection
 
-examples/spring-ai-adapter
+fastmcp-examples/spring-ai-adapter
   io.github.sandking.fastmcp.examples.springai
     FastMcpSpringAiExample    ToolCallbackProvider wrapping and ToolContext injection
 
-examples/spring-ai-boot-starter
+fastmcp-examples/spring-ai-boot-starter
   io.github.sandking.fastmcp.examples.springai.boot
     FastMcpSpringAiBootExample fastmcp.safe.* binding and resolver beans
 ```

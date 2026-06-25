@@ -21,7 +21,7 @@ It covers:
 Run it from the repository root with JDK 17 or newer:
 
 ```bash
-mvn -Pexamples -pl examples/spring-ai-boot-starter -am test
+mvn -Pexamples -pl fastmcp-examples/spring-ai-boot-starter -am test
 ```
 
 The starter currently wraps existing raw Spring AI providers. It does not create

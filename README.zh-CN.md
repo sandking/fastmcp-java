@@ -308,12 +308,12 @@ ToolCallbackProvider safeProvider = FastMcpSpringAiTools.wrap(rawProvider, List.
 
 `examples` profile 当前包含三条可运行的接入路径验证：
 
-- `examples/agentscope-adapter`：把虚拟 AgentScope tool 注册进 `Toolkit`，
+- `fastmcp-examples/agentscope-adapter`：把虚拟 AgentScope tool 注册进 `Toolkit`，
   演示 `status -> orderStatus` 参数映射，从 `RuntimeContext` 注入 `userId`
   和 `tenantId`，并拒绝模型传入受保护参数。
-- `examples/spring-ai-adapter`：把已有 raw Spring AI `ToolCallbackProvider`
+- `fastmcp-examples/spring-ai-adapter`：把已有 raw Spring AI `ToolCallbackProvider`
   包装成安全 provider，并从 `ToolContext` 注入受保护参数。
-- `examples/spring-ai-boot-starter`：绑定 `fastmcp.safe.*`，声明
+- `fastmcp-examples/spring-ai-boot-starter`：绑定 `fastmcp.safe.*`，声明
   `currentUserId` 等 resolver bean，并验证 starter 基于已有 raw provider
   发布 primary 的 `fastMcpSafeToolCallbackProvider`。managed MCP client 路径当前由
   starter 单元测试覆盖，后续补真实 MCP server 示例。
@@ -376,15 +376,15 @@ fastmcp-spring-ai-boot-starter
     FastMcpSpringAiManagedClientFactory creates managed Spring AI MCP clients
     FastMcpManagedSpringAiToolCallbackProvider closes managed clients
 
-examples/agentscope-adapter
+fastmcp-examples/agentscope-adapter
   io.github.sandking.fastmcp.examples.agentscope
     FastMcpAgentScopeExample  Toolkit 注册与 RuntimeContext 注入示例
 
-examples/spring-ai-adapter
+fastmcp-examples/spring-ai-adapter
   io.github.sandking.fastmcp.examples.springai
     FastMcpSpringAiExample    ToolCallbackProvider 包装与 ToolContext 注入示例
 
-examples/spring-ai-boot-starter
+fastmcp-examples/spring-ai-boot-starter
   io.github.sandking.fastmcp.examples.springai.boot
     FastMcpSpringAiBootExample fastmcp.safe.* 绑定与 resolver bean 示例
 ```

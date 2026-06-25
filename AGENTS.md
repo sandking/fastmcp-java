@@ -14,8 +14,8 @@ Always respond in Chinese-simplified
   - `fastmcp-agentscope-boot-starter`
   - `fastmcp-spring-ai-adapter`
   - `fastmcp-spring-ai-boot-starter`
-- `examples/agentscope-adapter`、`examples/spring-ai-adapter` 和 `examples/spring-ai-boot-starter` 只在 `examples` profile 下启用，并且 example modules 跳过 deploy。
-- 完整默认 reactor 需要 JDK 17；`fastmcp-safe-core` 和 `fastmcp-safe-config` 仍以 Java 11 release 编译，`fastmcp-safe-spring-boot-autoconfigure-support`、`fastmcp-agentscope-adapter`、`fastmcp-agentscope-boot-starter`、`fastmcp-spring-ai-adapter`、`fastmcp-spring-ai-boot-starter` 和 `examples/*` 使用 Java 17，因为 AgentScope Java 2.x、Spring AI 2.x 和 Spring Boot 4.x 需要 JDK 17+。
+- `fastmcp-examples` 是只在 `examples` profile 下启用的示例聚合模块，包含 `fastmcp-examples/agentscope-adapter`、`fastmcp-examples/spring-ai-adapter` 和 `fastmcp-examples/spring-ai-boot-starter`，并且 example modules 跳过 deploy。
+- 完整默认 reactor 需要 JDK 17；`fastmcp-safe-core` 和 `fastmcp-safe-config` 仍以 Java 11 release 编译，`fastmcp-safe-spring-boot-autoconfigure-support`、`fastmcp-agentscope-adapter`、`fastmcp-agentscope-boot-starter`、`fastmcp-spring-ai-adapter`、`fastmcp-spring-ai-boot-starter` 和 `fastmcp-examples/*` 使用 Java 17，因为 AgentScope Java 2.x、Spring AI 2.x 和 Spring Boot 4.x 需要 JDK 17+。
 - Spring AI Boot starter 使用独立的 `spring-ai-boot.version=4.0.7`，Spring AI adapter 使用 `spring-ai.version=2.0.0`。不要未经确认升级 Spring Boot、Spring AI、AgentScope、Maven 插件或 JDK release。
 - 当前仓库的主目标已调整为 Safe MCP Registration：安全地把 MCP raw tools 注册到 Java Agent 框架中，默认只让 LLM 看到 virtual tools。
 - 最关键的工程边界：目标不是做完整 FastMCP server/client 框架，而是让本库成为多个 Java Agent 框架上的安全 MCP 注册入口，确保 LLM 只看到 virtual tools。
@@ -31,7 +31,7 @@ Always respond in Chinese-simplified
 - `fastmcp-agentscope-boot-starter`：Spring Boot 4.x + AgentScope Java 2.x auto-configuration，复用 `fastmcp-safe-spring-boot-autoconfigure-support` 绑定 `fastmcp.safe.*` 并创建 `SafeMcpConfiguration`，把配置转换为 AgentScope mapping。它可以基于配置创建 managed AgentScope `McpClientWrapper`，支持 `streamable-http`、`sse` 和兼容用的 `stdio`，并把 managed raw MCP clients 留在 auto-configuration 内部，只向应用提供的 `Toolkit` 注册 virtual tools。MCP client 和 transport 行为应委托 AgentScope Java / MCP Java SDK；starter 只负责配置 glue、session/cookie 等必要 HTTP client 定制、安全包装和 raw client 隐藏。它不创建 AgentScope agent/model，也不拥有 `Toolkit` 生命周期；应用或 AgentScope 自身 auto-configuration 需要提供 `Toolkit` bean。
 - `fastmcp-spring-ai-adapter`：Spring AI `ToolCallback` adapter，核心目标是把 raw Spring AI `ToolCallback` / `ToolCallbackProvider` 包装成模型可见的安全虚拟 callback；通用 mapping/injection/policy 行为应委托 `fastmcp-safe-core`。当前它只包装已有 callback，不负责创建 MCP client。
 - `fastmcp-spring-ai-boot-starter`：Spring Boot 4.x + Spring AI 2.x auto-configuration，复用 `fastmcp-safe-spring-boot-autoconfigure-support` 绑定 `fastmcp.safe.*` 并创建 `SafeMcpConfiguration`，把配置转换为 Spring AI mapping。它可以基于配置创建 managed Spring AI `McpSyncClient`，支持 `streamable-http`、`sse` 和兼容用的 `stdio`，并把 managed raw MCP callbacks 留在 auto-configuration 内部，只发布 primary 的 `fastMcpSafeToolCallbackProvider`。MCP client 和 transport 行为应优先委托 Spring AI / MCP Java SDK；starter 只负责配置 glue、session/cookie 等必要 HTTP client 定制、安全包装和 raw provider 隐藏。它仍兼容外部 raw `ToolCallbackProvider` bean；如果应用自行把这些外部 raw provider bean 直接交给模型，仍可能绕过安全 provider。
-- `examples/*`：只作为可编译、可测试示例，不应把 example 中的演示假设反向写成 library API 事实。
+- `fastmcp-examples/*`：只作为可编译、可测试示例，不应把 example 中的演示假设反向写成 library API 事实。
 
 ## 3. AgentScope / MCP 安全目标
 

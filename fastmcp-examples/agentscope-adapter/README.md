@@ -20,7 +20,7 @@ It covers:
 Run it from the repository root with JDK 17 or newer:
 
 ```bash
-mvn -Pexamples -pl examples/agentscope-adapter -am test
+mvn -Pexamples -pl fastmcp-examples/agentscope-adapter -am test
 ```
 
 Run all examples:

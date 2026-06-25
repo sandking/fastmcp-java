@@ -21,7 +21,7 @@ It covers:
 Run it from the repository root with JDK 17 or newer:
 
 ```bash
-mvn -Pexamples -pl examples/spring-ai-adapter -am test
+mvn -Pexamples -pl fastmcp-examples/spring-ai-adapter -am test
 ```
 
 This example assumes the raw callback/provider already exists. It does not

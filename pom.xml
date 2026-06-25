@@ -97,9 +97,7 @@
         <profile>
             <id>examples</id>
             <modules>
-                <module>examples/agentscope-adapter</module>
-                <module>examples/spring-ai-adapter</module>
-                <module>examples/spring-ai-boot-starter</module>
+                <module>fastmcp-examples</module>
             </modules>
         </profile>
     </profiles>
