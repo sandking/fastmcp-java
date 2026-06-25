@@ -63,7 +63,7 @@ public class FastMcpSafeAutoConfiguration {
                     .collect(Collectors.toList());
             List<ToolCallback> safeCallbacks = new ArrayList<>();
             for (SafeMcpServerConfiguration server : configuration.servers().values()) {
-                if (!server.enabled() || server.tools().isEmpty()) {
+                if (server.tools().isEmpty()) {
                     continue;
                 }
                 List<ToolCallback> rawCallbacks = managedRawProviders.containsKey(server.name())

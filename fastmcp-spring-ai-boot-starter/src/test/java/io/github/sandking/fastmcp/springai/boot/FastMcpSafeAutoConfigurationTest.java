@@ -86,6 +86,25 @@ class FastMcpSafeAutoConfigurationTest {
     }
 
     @Test
+    void wrapsExternalRawProviderWhenManagedClientIsDisabled() {
+        contextRunner.withUserConfiguration(RawToolConfiguration.class)
+                .withPropertyValues("fastmcp.safe.servers.orders.enabled=false")
+                .run(context -> {
+                    ToolCallbackProvider safeProvider = context.getBean("fastMcpSafeToolCallbackProvider",
+                            ToolCallbackProvider.class);
+                    ToolCallback safeTool = safeProvider.getToolCallbacks()[0];
+
+                    String result = safeTool.call("{\"status\":\"PAID\"}",
+                            new ToolContext(Map.of("userId", "user-123")));
+
+                    CapturingToolCallback rawTool = context.getBean(CapturingToolCallback.class);
+                    assertThat(result).isEqualTo("orders for user-123 with status PAID");
+                    assertThat(rawTool.lastInput()).containsEntry("orderStatus", "PAID")
+                            .containsEntry("userId", "user-123");
+                });
+    }
+
+    @Test
     void createsSafeProviderFromManagedMcpClientsWithoutExposingRawProviderBean() {
         contextRunner.withUserConfiguration(ManagedOnlyConfiguration.class)
                 .withPropertyValues(
