@@ -217,6 +217,9 @@ Run the example with:
 mvn -Pexamples test
 ```
 
+Example modules are compile-checked by Maven but are skipped during deploy, so
+package publishing only includes the parent and library modules.
+
 ## Package layout
 
 ```text
@@ -242,6 +245,11 @@ fastmcp-agentscope-adapter
     FastMcpAgentScopeTools    registers FastMCP tools into AgentScope Toolkit
     FastMcpToolMapping        virtual-to-raw tool and argument mapping
     ToolArgumentResolver      resolves injected protected arguments
+
+examples/core
+  io.github.sandking.fastmcp.examples.core
+    EchoServer        plain Java tool registration example
+    AnnotatedService  annotation-based registration example
 
 examples/agentscope-adapter
   io.github.sandking.fastmcp.examples.agentscope

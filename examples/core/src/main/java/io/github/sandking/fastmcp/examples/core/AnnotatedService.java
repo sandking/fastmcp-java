@@ -1,3 +1,5 @@
+package io.github.sandking.fastmcp.examples.core;
+
 import io.github.sandking.fastmcp.AnnotatedToolRegistrar;
 import io.github.sandking.fastmcp.FastMcp;
 import io.github.sandking.fastmcp.FastMcpServer;

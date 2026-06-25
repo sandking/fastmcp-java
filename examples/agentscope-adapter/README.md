@@ -19,4 +19,4 @@ mvn -Pexamples test
 ```
 
 The adapter implementation lives in `fastmcp-agentscope-adapter`. The example is
-only a runnable usage check.
+only a runnable usage check and is skipped during Maven deploy.

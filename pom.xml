@@ -96,6 +96,7 @@
         <profile>
             <id>examples</id>
             <modules>
+                <module>examples/core</module>
                 <module>fastmcp-agentscope-adapter</module>
                 <module>examples/agentscope-adapter</module>
             </modules>

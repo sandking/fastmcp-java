@@ -1,3 +1,6 @@
+package io.github.sandking.fastmcp.examples.core;
+
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.github.sandking.fastmcp.FastMcp;
 import io.github.sandking.fastmcp.FastMcpServer;
 import io.github.sandking.fastmcp.JsonSchemas;
@@ -9,7 +12,7 @@ public final class EchoServer {
     }
 
     public static void main(String[] args) {
-        var schema = JsonSchemas.object();
+        ObjectNode schema = JsonSchemas.object();
         JsonSchemas.addProperty(schema, "text", JsonSchemas.string());
         JsonSchemas.require(schema, "text");
 
