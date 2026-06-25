@@ -134,8 +134,8 @@ class FastMcpSpringAiManagedClientFactoryTest {
 
     @Test
     void splitsStreamableHttpEndpointIntoBaseUriAndEndpointPath() {
-        FastMcpSpringAiManagedClientFactory.StreamableHttpEndpoint endpoint =
-                FastMcpSpringAiManagedClientFactory.streamableHttpEndpoint(
+        FastMcpSpringAiHttpTransportSupport.StreamableHttpEndpoint endpoint =
+                FastMcpSpringAiHttpTransportSupport.streamableHttpEndpoint(
                         "https://mcp.example.test/catalog/mcp?region=cn");
 
         assertThat(endpoint.baseUri()).isEqualTo("https://mcp.example.test");
@@ -148,7 +148,7 @@ class FastMcpSpringAiManagedClientFactoryTest {
         queryParams.put("app id", "catalog agent");
         queryParams.put("token", "a+b");
 
-        URI uri = FastMcpSpringAiManagedClientFactory.appendQueryParams(
+        URI uri = FastMcpSpringAiHttpTransportSupport.appendQueryParams(
                 URI.create("https://mcp.example.test/catalog/mcp?region=cn"),
                 queryParams);
 
@@ -161,7 +161,7 @@ class FastMcpSpringAiManagedClientFactoryTest {
         HttpRequest.Builder requestBuilder = HttpRequest.newBuilder()
                 .uri(URI.create("https://mcp.example.test/catalog/mcp"));
 
-        FastMcpSpringAiManagedClientFactory.applyHttpRequestConfiguration(requestBuilder,
+        FastMcpSpringAiHttpTransportSupport.applyHttpRequestConfiguration(requestBuilder,
                 URI.create("https://mcp.example.test/catalog/mcp"),
                 Map.of("Authorization", "Bearer test-token"),
                 Map.of("region", "cn"));

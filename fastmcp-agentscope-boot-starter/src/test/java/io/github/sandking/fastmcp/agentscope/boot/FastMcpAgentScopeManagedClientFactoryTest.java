@@ -62,6 +62,18 @@ class FastMcpAgentScopeManagedClientFactoryTest {
         assertThat(factory.servers).isEmpty();
     }
 
+    @Test
+    void resolvesRelativeSseEndpointAgainstServerEndpoint() {
+        SafeMcpServerConfiguration server = SafeMcpServerConfiguration.builder("orders")
+                .transport("sse")
+                .endpoint("https://mcp.example.test/catalog/")
+                .sseEndpoint("events")
+                .build();
+
+        assertThat(FastMcpAgentScopeHttpClientSupport.sseUrl(server))
+                .isEqualTo("https://mcp.example.test/catalog/events");
+    }
+
     private static ObjectNode virtualOrderSchema() {
         ObjectNode schema = JsonNodeFactory.instance.objectNode();
         schema.put("type", "object");
