@@ -1,32 +1,27 @@
 package io.github.sandking.fastmcp.examples.agentscope;
 
+import com.fasterxml.jackson.databind.node.JsonNodeFactory;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import io.agentscope.core.agent.RuntimeContext;
 import io.agentscope.core.message.TextBlock;
 import io.agentscope.core.message.ToolResultBlock;
 import io.agentscope.core.message.ToolUseBlock;
+import io.agentscope.core.tool.ToolBase;
 import io.agentscope.core.tool.ToolCallParam;
 import io.agentscope.core.tool.Toolkit;
-import io.agentscope.core.agent.RuntimeContext;
 import io.github.sandking.fastmcp.agentscope.FastMcpAgentScopeTools;
 import io.github.sandking.fastmcp.agentscope.FastMcpToolMapping;
-import io.github.sandking.fastmcp.FastMcp;
-import io.github.sandking.fastmcp.FastMcpServer;
-import io.github.sandking.fastmcp.JsonSchemas;
-import io.github.sandking.fastmcp.ToolResult;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import java.util.List;
 import java.util.Map;
+import reactor.core.publisher.Mono;
 
 public final class FastMcpAgentScopeExample {
     private FastMcpAgentScopeExample() {
     }
 
     public static void main(String[] args) {
-        FastMcpServer server = FastMcp.server("AgentScope Example")
-                .tool("getOrdersByUserId", "Internal raw order lookup by user id", rawOrderSchema(),
-                        arguments -> ToolResult.text("orders for " + arguments.getString("userId")
-                                + " with status " + arguments.getString("status")));
-
         Toolkit toolkit = new Toolkit();
-        FastMcpAgentScopeTools.register(toolkit, server, FastMcpToolMapping.builder("getOrdersByUserId")
+        FastMcpAgentScopeTools.register(toolkit, new RawOrderTool(), FastMcpToolMapping.builder("getOrdersByUserId")
                 .name("get_my_orders")
                 .description("Get orders for the authenticated user.")
                 .inputSchema(virtualOrderSchema())
@@ -51,19 +46,14 @@ public final class FastMcpAgentScopeExample {
         System.out.println(((TextBlock) result.getOutput().get(0)).getText());
     }
 
-    private static ObjectNode rawOrderSchema() {
-        ObjectNode schema = JsonSchemas.object();
-        JsonSchemas.addProperty(schema, "userId", JsonSchemas.string());
-        JsonSchemas.addProperty(schema, "status", JsonSchemas.string());
-        JsonSchemas.require(schema, "userId");
-        JsonSchemas.require(schema, "status");
-        return schema;
-    }
-
     private static ObjectNode virtualOrderSchema() {
-        ObjectNode schema = JsonSchemas.object();
-        JsonSchemas.addProperty(schema, "status", JsonSchemas.string());
-        JsonSchemas.require(schema, "status");
+        ObjectNode schema = JsonNodeFactory.instance.objectNode();
+        schema.put("type", "object");
+        ObjectNode properties = schema.putObject("properties");
+        ObjectNode status = JsonNodeFactory.instance.objectNode();
+        status.put("type", "string");
+        properties.set("status", status);
+        schema.putArray("required").add("status");
         return schema;
     }
 
@@ -76,6 +66,31 @@ public final class FastMcpAgentScopeExample {
 
         private String userId() {
             return userId;
+        }
+    }
+
+    private static final class RawOrderTool extends ToolBase {
+        private RawOrderTool() {
+            super(ToolBase.builder()
+                    .name("getOrdersByUserId")
+                    .description("Internal raw order lookup by user id")
+                    .inputSchema(Map.of(
+                            "type", "object",
+                            "properties", Map.of(
+                                    "userId", Map.of("type", "string"),
+                                    "status", Map.of("type", "string")),
+                            "required", List.of("userId", "status")))
+                    .readOnly(true)
+                    .concurrencySafe(true));
+        }
+
+        @Override
+        public Mono<ToolResultBlock> callAsync(ToolCallParam param) {
+            return Mono.just(ToolResultBlock.of(param.getToolUseBlock().getId(), getName(),
+                    TextBlock.builder()
+                            .text("orders for " + param.getInput().get("userId")
+                                    + " with status " + param.getInput().get("status"))
+                            .build()));
         }
     }
 }

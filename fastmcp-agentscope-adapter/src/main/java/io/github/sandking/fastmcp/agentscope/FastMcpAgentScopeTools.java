@@ -4,6 +4,8 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.agentscope.core.agent.RuntimeContext;
+import io.agentscope.core.message.ContentBlock;
 import io.agentscope.core.message.TextBlock;
 import io.agentscope.core.message.ToolResultBlock;
 import io.agentscope.core.message.ToolUseBlock;
@@ -13,13 +15,13 @@ import io.agentscope.core.tool.ToolCallParam;
 import io.agentscope.core.tool.Toolkit;
 import io.agentscope.core.tool.mcp.McpClientWrapper;
 import io.agentscope.core.tool.mcp.McpTool;
-import io.github.sandking.fastmcp.FastMcpServer;
-import io.github.sandking.fastmcp.ToolDefinition;
-import io.github.sandking.fastmcp.ToolException;
-import io.github.sandking.fastmcp.ToolResult;
+import io.github.sandking.fastmcp.safe.RawToolResult;
+import io.github.sandking.fastmcp.safe.SafeMcpTool;
+import io.github.sandking.fastmcp.safe.SafeMcpToolSpec;
+import io.github.sandking.fastmcp.safe.SafeToolCallContext;
+import io.github.sandking.fastmcp.safe.SafeToolResult;
 import io.modelcontextprotocol.spec.McpSchema;
 import java.util.Collections;
-import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -32,23 +34,6 @@ public final class FastMcpAgentScopeTools {
     };
 
     private FastMcpAgentScopeTools() {
-    }
-
-    public static void register(Toolkit toolkit, FastMcpServer server) {
-        Objects.requireNonNull(server, "server must not be null");
-        List<FastMcpToolMapping> mappings = new ArrayList<>();
-        for (ToolDefinition tool : server.listTools()) {
-            mappings.add(FastMcpToolMapping.builder(tool.name())
-                    .name(tool.name())
-                    .description(tool.description())
-                    .inputSchema(tool.inputSchema())
-                    .build());
-        }
-        register(toolkit, server, mappings);
-    }
-
-    public static void register(Toolkit toolkit, FastMcpServer server, FastMcpToolMapping... mappings) {
-        register(toolkit, server, List.of(mappings));
     }
 
     public static void register(Toolkit toolkit, AgentTool rawTool, FastMcpToolMapping mapping) {
@@ -78,68 +63,16 @@ public final class FastMcpAgentScopeTools {
                 .then();
     }
 
-    public static void register(Toolkit toolkit, FastMcpServer server, List<FastMcpToolMapping> mappings) {
-        Objects.requireNonNull(toolkit, "toolkit must not be null");
-        Objects.requireNonNull(server, "server must not be null");
-        Objects.requireNonNull(mappings, "mappings must not be null");
-
-        Map<String, ToolDefinition> rawTools = new LinkedHashMap<>();
-        for (ToolDefinition tool : server.listTools()) {
-            rawTools.put(tool.name(), tool);
-        }
-        for (FastMcpToolMapping mapping : mappings) {
-            ToolDefinition rawTool = rawTools.get(Objects.requireNonNull(mapping, "mapping must not be null").rawName());
-            if (rawTool == null) {
-                throw new IllegalArgumentException("Raw tool not found: " + mapping.rawName());
-            }
-            toolkit.registerAgentTool(new FastMcpToolAdapter(server, rawTool, mapping));
-        }
-    }
-
-    private static final class FastMcpToolAdapter extends ToolBase {
-        private final FastMcpServer server;
-        private final ToolDefinition rawTool;
-        private final FastMcpToolMapping mapping;
-
-        private FastMcpToolAdapter(FastMcpServer server, ToolDefinition rawTool, FastMcpToolMapping mapping) {
-            super(ToolBase.builder()
-                    .name(mapping.name())
-                    .description(description(rawTool, mapping))
-                    .inputSchema(toMap(inputSchema(rawTool, mapping)))
-                    .readOnly(mapping.readOnly())
-                    .concurrencySafe(mapping.concurrencySafe()));
-            this.server = server;
-            this.rawTool = rawTool;
-            this.mapping = mapping;
-        }
-
-        @Override
-        public Mono<ToolResultBlock> callAsync(ToolCallParam param) {
-            return Mono.fromCallable(() -> {
-                Map<String, Object> rawArguments = toRawArguments(param);
-                ToolResult result = server.callTool(rawTool.name(), rawArguments);
-                return toAgentScopeResult(param, result);
-            });
-        }
-
-        private Map<String, Object> toRawArguments(ToolCallParam param) {
-            return FastMcpAgentScopeTools.toRawArguments(mapping, param);
-        }
-
-        private ToolResultBlock toAgentScopeResult(ToolCallParam param, ToolResult result) {
-            Map<String, Object> metadata = new LinkedHashMap<>(result.meta());
-            result.structuredContent().ifPresent(value -> metadata.put("structuredContent", value));
-
-            return ToolResultBlock.of(id(param), mapping.name(),
-                    List.of(TextBlock.builder().text(result.content()).build()), metadata);
-        }
-    }
-
     private static final class AgentScopeToolAdapter extends ToolBase {
         private final AgentTool rawTool;
         private final FastMcpToolMapping mapping;
+        private final String rawServerName;
 
         private AgentScopeToolAdapter(AgentTool rawTool, FastMcpToolMapping mapping) {
+            this(rawTool, mapping, rawServerName(rawTool));
+        }
+
+        private AgentScopeToolAdapter(AgentTool rawTool, FastMcpToolMapping mapping, String rawServerName) {
             super(ToolBase.builder()
                     .name(mapping.name())
                     .description(description(rawTool, mapping))
@@ -148,13 +81,19 @@ public final class FastMcpAgentScopeTools {
                     .concurrencySafe(concurrencySafe(rawTool, mapping)));
             this.rawTool = rawTool;
             this.mapping = mapping;
+            this.rawServerName = rawServerName;
         }
 
         @Override
         public Mono<ToolResultBlock> callAsync(ToolCallParam param) {
-            Map<String, Object> rawArguments = toRawArguments(mapping, param);
-            return rawTool.callAsync(toRawParam(param, rawArguments))
-                    .map(result -> result.withIdAndName(id(param), mapping.name()));
+            SafeMcpTool safeTool = new SafeMcpTool("agentscope",
+                    toSafeSpec(mapping, rawServerName, rawTool.getName(), description(rawTool, mapping), null,
+                            readOnly(rawTool, mapping), concurrencySafe(rawTool, mapping)),
+                    (serverName, rawToolName, rawArguments) -> rawTool.callAsync(toRawParam(param, rawArguments))
+                            .map(FastMcpAgentScopeTools::toRawToolResult)
+                            .toFuture());
+            return Mono.fromCompletionStage(safeTool.callAsync(input(param), safeContext(param)))
+                    .map(result -> toAgentScopeResult(id(param), result));
         }
 
         private ToolCallParam toRawParam(ToolCallParam param, Map<String, Object> rawArguments) {
@@ -192,7 +131,7 @@ public final class FastMcpAgentScopeTools {
             if (rawTool == null) {
                 throw new IllegalArgumentException("Raw MCP tool not found: " + mapping.rawName());
             }
-            toolkit.registerAgentTool(new AgentScopeToolAdapter(toMcpTool(client, rawTool), mapping));
+            toolkit.registerAgentTool(new AgentScopeToolAdapter(toMcpTool(client, rawTool), mapping, client.getName()));
         }
     }
 
@@ -214,18 +153,6 @@ public final class FastMcpAgentScopeTools {
 
     private static String namespacedMcpToolName(McpClientWrapper client, String toolName) {
         return "mcp__" + client.getName() + "__" + toolName;
-    }
-
-    private static String description(ToolDefinition rawTool, FastMcpToolMapping mapping) {
-        if (mapping.description() != null) {
-            return mapping.description();
-        }
-        return rawTool.description();
-    }
-
-    private static JsonNode inputSchema(ToolDefinition rawTool, FastMcpToolMapping mapping) {
-        JsonNode schema = mapping.inputSchema();
-        return schema == null ? rawTool.inputSchema() : schema;
     }
 
     private static Map<String, Object> toMap(JsonNode schema) {
@@ -256,27 +183,6 @@ public final class FastMcpAgentScopeTools {
         return mapping.concurrencySafe() || rawTool instanceof ToolBase && ((ToolBase) rawTool).isConcurrencySafe();
     }
 
-    private static Map<String, Object> toRawArguments(FastMcpToolMapping mapping, ToolCallParam param) {
-        Map<String, Object> input = input(param);
-        Map<String, Object> rawArguments = new LinkedHashMap<>();
-
-        for (Map.Entry<String, Object> entry : input.entrySet()) {
-            String virtualName = entry.getKey();
-            String rawName = mapping.argumentMappings().getOrDefault(virtualName, virtualName);
-            if (mapping.injectedArguments().containsKey(virtualName)
-                    || mapping.injectedArguments().containsKey(rawName)) {
-                throw new ToolException("Model supplied protected argument: " + virtualName);
-            }
-            rawArguments.put(rawName, entry.getValue());
-        }
-
-        for (Map.Entry<String, ToolArgumentResolver> entry : mapping.injectedArguments().entrySet()) {
-            rawArguments.put(entry.getKey(), entry.getValue().resolve(param));
-        }
-
-        return rawArguments;
-    }
-
     private static Map<String, Object> input(ToolCallParam param) {
         if (param != null && param.getInput() != null) {
             return param.getInput();
@@ -285,6 +191,67 @@ public final class FastMcpAgentScopeTools {
             return param.getToolUseBlock().getInput();
         }
         return Map.of();
+    }
+
+    private static SafeToolCallContext safeContext(ToolCallParam param) {
+        SafeToolCallContext.Builder builder = SafeToolCallContext.builder()
+                .frameworkContext(ToolCallParam.class, param);
+        if (param != null && param.getRuntimeContext() != null) {
+            RuntimeContext runtimeContext = param.getRuntimeContext();
+            builder.userId(runtimeContext.getUserId())
+                    .frameworkContext(RuntimeContext.class, runtimeContext);
+        }
+        return builder.build();
+    }
+
+    private static SafeMcpToolSpec toSafeSpec(FastMcpToolMapping mapping, String rawServerName, String rawToolName,
+            String description, JsonNode inputSchema, boolean readOnly, boolean concurrencySafe) {
+        SafeMcpToolSpec.Builder builder = SafeMcpToolSpec.builder(rawServerName, rawToolName)
+                .name(mapping.name())
+                .description(description)
+                .inputSchema(inputSchema)
+                .readOnly(readOnly)
+                .concurrencySafe(concurrencySafe);
+        mapping.argumentMappings().forEach(builder::mapArgument);
+        mapping.injectedArguments().forEach((rawName, resolver) -> builder.injectArgument(rawName,
+                context -> resolver.resolve(context.frameworkContext(ToolCallParam.class))));
+        return builder.build();
+    }
+
+    private static RawToolResult toRawToolResult(ToolResultBlock result) {
+        RawToolResult.Builder builder = RawToolResult.builder()
+                .content(textContent(result))
+                .meta(result.getMetadata());
+        return builder.build();
+    }
+
+    private static String textContent(ToolResultBlock result) {
+        StringBuilder text = new StringBuilder();
+        for (ContentBlock block : result.getOutput()) {
+            if (block instanceof TextBlock) {
+                if (text.length() > 0) {
+                    text.append('\n');
+                }
+                text.append(((TextBlock) block).getText());
+            }
+        }
+        return text.toString();
+    }
+
+    private static ToolResultBlock toAgentScopeResult(String id, SafeToolResult result) {
+        Map<String, Object> metadata = new LinkedHashMap<>(result.meta());
+        result.structuredContent().ifPresent(value -> metadata.put("structuredContent", value));
+        return ToolResultBlock.of(id, result.toolName(),
+                List.of(TextBlock.builder().text(result.content()).build()), metadata);
+    }
+
+    private static String rawServerName(AgentTool rawTool) {
+        if (rawTool instanceof ToolBase && ((ToolBase) rawTool).isMcp()
+                && ((ToolBase) rawTool).getMcpName() != null
+                && !((ToolBase) rawTool).getMcpName().trim().isEmpty()) {
+            return ((ToolBase) rawTool).getMcpName();
+        }
+        return "agentscope";
     }
 
     private static Map<String, Object> metadata(ToolCallParam param) {
@@ -305,7 +272,7 @@ public final class FastMcpAgentScopeTools {
         try {
             return OBJECT_MAPPER.writeValueAsString(rawArguments);
         } catch (JsonProcessingException exception) {
-            throw new ToolException("Failed to serialize raw tool arguments", exception);
+            throw new IllegalStateException("Failed to serialize raw tool arguments", exception);
         }
     }
 }

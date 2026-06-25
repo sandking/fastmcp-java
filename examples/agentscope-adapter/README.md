@@ -3,10 +3,10 @@
 This example validates the safe virtual tool path:
 
 ```text
-raw FastMCP tool with userId
+raw AgentScope/backend tool with userId
   -> virtual AgentScope tool without userId
   -> userId injected from server-side RuntimeContext
-  -> delegate back to the raw FastMCP tool
+  -> delegate back to the raw tool
 ```
 
 The goal is to avoid exposing identity-sensitive arguments such as `userId`,

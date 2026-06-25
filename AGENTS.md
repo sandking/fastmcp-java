@@ -7,24 +7,29 @@ Always respond in Chinese-simplified
 ## 1. 当前工程事实
 
 - 这是 Maven 多模块 Java 仓库，根 `pom.xml` 默认只包含：
-  - `fastmcp-core`
-  - `fastmcp-spring-boot-starter`
-- `fastmcp-agentscope-adapter` 不在默认 modules 中，只在 `agentscope` profile 下启用。
-- `examples/core`、`examples/agentscope-adapter` 只在 `examples` profile 下启用，并且 example modules 跳过 deploy。
-- 默认编译 release 是 Java 11；`fastmcp-agentscope-adapter` 和 `examples/agentscope-adapter` 使用 Java 17，因为 AgentScope Java 2.x 需要 JDK 17+。
-- 当前 Spring Boot 版本来自根 POM 的 `spring-boot.version=2.7.18`，不要未经确认升级 Spring Boot、AgentScope、Maven 插件或 JDK release。
-- 当前仓库还没有实现 MCP HTTP/SSE transport endpoint、resources、prompts、client implementation、authentication、lifecycle、production middleware、protocol conformance tests。不要在文档或汇报里暗示这些能力已经具备。
+  - `fastmcp-safe-core`
+  - `fastmcp-safe-config`
+  - `fastmcp-agentscope-adapter`
+  - `fastmcp-spring-ai-adapter`
+  - `fastmcp-spring-ai-boot-starter`
+- `examples/agentscope-adapter` 只在 `examples` profile 下启用，并且 example modules 跳过 deploy。
+- 完整默认 reactor 需要 JDK 17；`fastmcp-safe-core` 和 `fastmcp-safe-config` 仍以 Java 11 release 编译，`fastmcp-agentscope-adapter`、`fastmcp-spring-ai-adapter`、`fastmcp-spring-ai-boot-starter` 和 `examples/agentscope-adapter` 使用 Java 17，因为 AgentScope Java 2.x、Spring AI 2.x 和 Spring Boot 4.x 需要 JDK 17+。
+- Spring AI Boot starter 使用独立的 `spring-ai-boot.version=4.0.7`，Spring AI adapter 使用 `spring-ai.version=2.0.0`。不要未经确认升级 Spring Boot、Spring AI、AgentScope、Maven 插件或 JDK release。
+- 当前仓库的主目标已调整为 Safe MCP Registration：安全地把 MCP raw tools 注册到 Java Agent 框架中，默认只让 LLM 看到 virtual tools。
+- 当前仓库已经实现第一版 Spring AI adapter、framework-neutral safe config model、Spring AI Boot `fastmcp.safe.*` 配置绑定和基于已有 raw `ToolCallbackProvider` 的安全 provider 包装；但还没有实现基于本库配置自动创建 MCP client、AgentScope Spring Boot auto-configuration、MCP HTTP/SSE transport endpoint、resources、prompts、client implementation、authentication、lifecycle、production middleware、protocol conformance tests。不要在文档或汇报里暗示这些能力已经具备。
 
 ## 2. 模块职责边界
 
-- `fastmcp-core`：无 Spring 依赖的最小 FastMCP Java core，负责工具注册、JSON Schema metadata、内存态 `listTools` / `callTool`、注解注册和 `ToolResult` 表达。
-- `fastmcp-spring-boot-starter`：Spring Boot auto-configuration，只创建并填充 `FastMcpServer` bean，扫描 Spring bean 上的 `@McpTool` 方法；当前不发布 MCP transport endpoint。
-- `fastmcp-agentscope-adapter`：AgentScope Toolkit adapter，核心目标是把 raw FastMCP tool 或 raw AgentScope/MCP tool 包装成模型可见的安全虚拟工具。
+- `fastmcp-safe-core`：框架无关的 Safe MCP Registration 核心，负责 virtual tool spec、virtual-to-raw argument mapping、protected argument injection、policy、raw invoker 和 audit event。
+- `fastmcp-safe-config`：框架无关的 Safe MCP Registration 配置模型，负责描述 MCP server、virtual tool、argument mapping 和 protected argument source name。它只做不可变配置表达和校验，不创建 MCP client，不绑定 Spring Boot properties。
+- `fastmcp-agentscope-adapter`：AgentScope Toolkit adapter，核心目标是把 raw backend tool 或 raw AgentScope/MCP tool 包装成模型可见的安全虚拟工具；通用 mapping/injection/policy 行为应委托 `fastmcp-safe-core`。
+- `fastmcp-spring-ai-adapter`：Spring AI `ToolCallback` adapter，核心目标是把 raw Spring AI `ToolCallback` / `ToolCallbackProvider` 包装成模型可见的安全虚拟 callback；通用 mapping/injection/policy 行为应委托 `fastmcp-safe-core`。当前它只包装已有 callback，不负责创建 MCP client。
+- `fastmcp-spring-ai-boot-starter`：Spring Boot 4.x + Spring AI 2.x auto-configuration，负责绑定 `fastmcp.safe.*`、创建 `SafeMcpConfiguration`、把配置转换为 Spring AI mapping，并包装已有 raw `ToolCallbackProvider` bean 为 primary 的 `fastMcpSafeToolCallbackProvider`。当前它不创建 MCP client；如果应用把所有 raw provider bean 直接交给模型，仍可能绕过安全 provider，后续 MCP client 创建阶段需要隐藏 raw provider。
 - `examples/*`：只作为可编译、可测试示例，不应把 example 中的演示假设反向写成 library API 事实。
 
 ## 3. AgentScope / MCP 安全目标
 
-- 本仓库 AgentScope adapter 的首要目标是避免把 raw backend tool、raw FastMCP tool 或 raw AgentScope MCP tool 直接裸露给 LLM。
+- 本仓库 AgentScope adapter 的首要目标是避免把 raw backend tool 或 raw AgentScope MCP tool 直接裸露给 LLM。
 - Prompt 不是安全边界。模型输出只能视为 tool call 建议，不能作为授权、身份、租户或资源归属依据。
 - 安全关键字段必须来自服务端确定性上下文，例如 `RuntimeContext` 中的用户、租户、权限或业务上下文；不要让模型通过 JSON 参数传 `userId`、`tenantId`、`memberId`、`role`、`includeDeleted` 等安全关键字段。
 - 工具名、description、input schema 都默认会被模型看到；不要把内部系统名、数据库表名、生产环境标识、权限模型、后端接口路径或敏感参数暴露在模型可见 metadata 中。
@@ -37,17 +42,36 @@ Always respond in Chinese-simplified
   - 提供只包含模型可填业务字段的虚拟 `inputSchema`
   - 使用 `mapArgument` 做普通业务字段映射
   - 使用 `injectArgument` 注入受保护 raw 参数
-- `FastMcpAgentScopeTools.register(toolkit, server, mappings)` 是包装 raw FastMCP tool 的安全入口。
 - `FastMcpAgentScopeTools.register(toolkit, rawAgentTool, mapping)` 是包装 raw AgentScope tool 的安全入口。
 - `FastMcpAgentScopeTools.registerMcpClient(toolkit, client, mappings)` 是包装 AgentScope `McpClientWrapper` 的安全入口；它可以让 AgentScope 继续处理 MCP 协议细节，但只向传入的 `Toolkit` 注册 mapped virtual tools。
 - 不要在安全场景中直接使用 `toolkit.registerMcpClient(client)` 把 MCP tools 全量注入模型可见 Toolkit，除非本轮任务明确需要复现或对比 AgentScope 原生行为。
-- 不要把 `FastMcpAgentScopeTools.register(toolkit, server)` 当作安全入口；该无 mapping 重载会按 raw tool 的原名、原 description 和原 schema 生成工具，适合基础适配或测试，不适合解决 raw tool 暴露问题。
 - 修改 adapter 时必须保留并强化以下行为：
   - 模型只能看到 virtual tool
   - virtual schema 不包含 injected protected arguments
   - 模型显式传入 protected argument 时拒绝执行
   - raw tool 只作为内部 delegate 被调用
   - 返回给 AgentScope 的 tool result name 使用 virtual tool name
+- 不要在 AgentScope adapter 中重新实现通用 protected-argument mapping/injection/policy 逻辑；这些逻辑属于 `fastmcp-safe-core`。
+- 如果 adapter 从 `fastmcp-safe-config` 构造 mapping，配置里的 injected argument value 只能是 resolver source name，例如 `currentUserId`；真实 `userId`、`tenantId` 等敏感值必须继续由 adapter 的 resolver registry 从运行时上下文解析，不能写入配置文件。
+- Spring AI 安全入口必须显式使用 `SpringAiMcpToolMapping` 和 `FastMcpSpringAiTools.wrap(...)`：
+  - 设置模型可见的虚拟 `name` 和 `description`
+  - 提供只包含模型可填业务字段的虚拟 `inputSchema`
+  - 使用 `mapArgument` 做普通业务字段映射
+  - 使用 `injectArgument` 从 Spring AI `ToolContext` 注入受保护 raw 参数
+- 不要在安全场景中直接把 raw Spring AI MCP `ToolCallbackProvider` 交给模型，除非本轮任务明确需要复现或对比 Spring AI 原生行为。
+- 修改 Spring AI adapter 时必须保留并强化以下行为：
+  - 模型只能看到 virtual `ToolCallback`
+  - virtual schema 不包含 injected protected arguments
+  - 模型显式传入 protected argument 时拒绝执行
+  - raw callback 只作为内部 delegate 被调用
+  - raw callback 调用时继续接收原始 Spring AI `ToolContext`
+- 不要在 Spring AI adapter 中重新实现通用 protected-argument mapping/injection/policy 逻辑；这些逻辑属于 `fastmcp-safe-core`。
+- Spring AI Boot starter 的安全入口是 `fastmcp.safe.*` 配置加 resolver bean：
+  - `fastmcp.safe.servers.<server>.tools.<rawTool>.name`、`description`、`input-schema` 必须是模型可见的 virtual metadata
+  - `argument-mappings` 只做普通业务字段映射
+  - `injected-arguments` 的值只能是 resolver bean name，例如 `currentUserId`
+  - 真实敏感值必须由 `SpringAiToolArgumentResolver` 从 `ToolContext` 解析，不能写入配置
+  - auto-configuration 发布的 `fastMcpSafeToolCallbackProvider` 是 primary，但 raw provider bean 仍然可能存在；应用侧不要把 raw provider 集合直接交给模型
 
 ## 5. AgentScope 依赖核对规则
 
@@ -58,18 +82,26 @@ Always respond in Chinese-simplified
   - AgentScope 风格的 `mcp__<clientName>__<toolName>`
 - 不要只看 README 断言实现状态；必须核对当前 Java 源码和测试。
 
-## 6. 验证命令
+## 6. Spring AI 依赖核对规则
 
-- 默认 core + Spring Boot starter 验证：
+- 当前 Spring AI adapter 依赖 `org.springframework.ai:spring-ai-model:2.0.0`，模块 release 为 Java 17。
+- Spring AI 2.x 依赖 Spring Framework 7.x 等较新版本线；Spring AI Boot starter 使用 Spring Boot 4.0.7。不要让其他 Spring Boot BOM 在根 POM 全局生效，否则可能把 Spring AI / Boot 4 transitive dependencies 降到不兼容版本。
+- 涉及 `ToolCallback`、`ToolCallbackProvider`、`ToolDefinition`、`ToolContext` 或 Spring AI MCP callback 行为时，优先核对当前依赖字节码或源码，再对照官方文档。
+- 当前 Spring AI adapter 通过反射兼容带 `getOriginalToolName()` 的 MCP callback；mapping raw name 可以是 `ToolDefinition.name()`，也可以是 MCP callback 暴露的 original tool name。
+- 不要把 README 或计划文档当作唯一事实源；必须核对当前 Java 源码、POM 和测试。
+
+## 7. 验证命令
+
+- 默认 full reactor 验证，必须使用 JDK 17+：
 
 ```bash
 mvn test
 ```
 
-- AgentScope adapter 改动必须使用 JDK 17+ 执行：
+- 如果只需要核对 Java 11 兼容的 safe-core / safe-config，可执行：
 
 ```bash
-mvn -Pagentscope test
+mvn -pl fastmcp-safe-core,fastmcp-safe-config -am test
 ```
 
 - example 或 README 示例链路改动需要执行：
@@ -78,10 +110,10 @@ mvn -Pagentscope test
 mvn -Pexamples test
 ```
 
-- 如果本机默认 Maven 使用 Java 11，运行 `-Pagentscope` 或 `-Pexamples` 可能出现 class file version 61 / 55 之类错误；这属于 JDK 运行环境不匹配，应切到 JDK 17+ 后复跑，不要把它误判为 adapter 测试失败。
-- CI 当前分两条验证：Java 11 跑 `mvn -B test`，Java 17 跑 `mvn -B -Pagentscope test` 和 `mvn -B -Pexamples test`。本地汇报要说明实际使用的 JDK、profile 和命令。
+- 如果本机默认 Maven 使用 Java 11，运行 `mvn test` 或 `mvn -Pexamples test` 可能出现 class file version 61 / 55、`不支持发行版本 17` 之类错误；这属于 JDK 运行环境不匹配，应切到 JDK 17+ 后复跑，不要把它误判为 adapter 测试失败。
+- CI 当前分两条验证：Java 11 跑 `mvn -B -pl fastmcp-safe-core,fastmcp-safe-config -am test`，覆盖 Java 11 兼容模块；Java 17 跑 `mvn -B test` 和 `mvn -B -Pexamples test`。本地汇报要说明实际使用的 JDK、profile 和命令。
 
-## 7. 汇报要求补充
+## 8. 汇报要求补充
 
 - 代码或行为改动后，按影响范围说明：
   - 修改了哪些 module

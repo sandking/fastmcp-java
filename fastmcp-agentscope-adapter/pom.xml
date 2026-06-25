@@ -25,7 +25,12 @@
     <dependencies>
         <dependency>
             <groupId>io.github.sandking</groupId>
-            <artifactId>fastmcp-java</artifactId>
+            <artifactId>fastmcp-safe-core</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>io.github.sandking</groupId>
+            <artifactId>fastmcp-safe-config</artifactId>
             <version>${project.version}</version>
         </dependency>
         <dependency>

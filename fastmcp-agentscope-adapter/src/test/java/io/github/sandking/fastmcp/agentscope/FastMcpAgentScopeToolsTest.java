@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.agentscope.core.agent.RuntimeContext;
 import io.agentscope.core.message.TextBlock;
@@ -14,23 +15,30 @@ import io.agentscope.core.tool.ToolBase;
 import io.agentscope.core.tool.ToolCallParam;
 import io.agentscope.core.tool.Toolkit;
 import io.agentscope.core.tool.mcp.McpClientWrapper;
-import io.github.sandking.fastmcp.FastMcp;
-import io.github.sandking.fastmcp.FastMcpServer;
-import io.github.sandking.fastmcp.JsonSchemas;
-import io.github.sandking.fastmcp.ToolException;
-import io.github.sandking.fastmcp.ToolResult;
+import io.github.sandking.fastmcp.safe.SafeMcpException;
+import io.github.sandking.fastmcp.safe.config.SafeMcpToolConfiguration;
 import io.modelcontextprotocol.spec.McpSchema;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 import reactor.core.publisher.Mono;
 
 class FastMcpAgentScopeToolsTest {
     @Test
+    void doesNotExposeLegacyFastMcpServerRegistrationApi() {
+        boolean exposesLegacyServerApi = Stream.of(FastMcpAgentScopeTools.class.getMethods())
+                .flatMap(method -> Stream.of(method.getParameterTypes()))
+                .map(Class::getName)
+                .anyMatch("io.github.sandking.fastmcp.FastMcpServer"::equals);
+
+        assertFalse(exposesLegacyServerApi);
+    }
+
+    @Test
     void exposesVirtualToolAndInjectsProtectedUserIdBeforeDelegatingToRawTool() {
-        FastMcpServer server = orderServer();
         Toolkit toolkit = new Toolkit();
-        FastMcpAgentScopeTools.register(toolkit, server, currentUserOrdersMapping());
+        FastMcpAgentScopeTools.register(toolkit, new RawOrderTool(), currentUserOrdersMapping());
 
         assertTrue(toolkit.getToolNames().contains("get_my_orders"));
         assertFalse(toolkit.getToolNames().contains("getOrdersByUserId"));
@@ -57,9 +65,8 @@ class FastMcpAgentScopeToolsTest {
 
     @Test
     void rejectsModelSuppliedProtectedArguments() {
-        FastMcpServer server = orderServer();
         Toolkit toolkit = new Toolkit();
-        FastMcpAgentScopeTools.register(toolkit, server, currentUserOrdersMapping());
+        FastMcpAgentScopeTools.register(toolkit, new RawOrderTool(), currentUserOrdersMapping());
 
         ToolCallParam param = ToolCallParam.builder()
                 .toolUseBlock(ToolUseBlock.builder()
@@ -74,7 +81,7 @@ class FastMcpAgentScopeToolsTest {
                         .build())
                 .build();
 
-        assertThrows(ToolException.class, () -> toolkit.getTool("get_my_orders").callAsync(param).block());
+        assertThrows(SafeMcpException.class, () -> toolkit.getTool("get_my_orders").callAsync(param).block());
     }
 
     @Test
@@ -148,17 +155,24 @@ class FastMcpAgentScopeToolsTest {
         assertEquals(Map.of("status", "PAID", "userId", "user-123"), wrapper.lastArguments);
     }
 
-    private FastMcpServer orderServer() {
-        ObjectNode rawSchema = JsonSchemas.object();
-        JsonSchemas.addProperty(rawSchema, "userId", JsonSchemas.string());
-        JsonSchemas.addProperty(rawSchema, "status", JsonSchemas.string());
-        JsonSchemas.require(rawSchema, "userId");
-        JsonSchemas.require(rawSchema, "status");
+    @Test
+    void createsMappingFromSharedSafeToolConfiguration() {
+        FastMcpToolMapping mapping = FastMcpToolMapping.from(currentUserOrdersToolConfig(),
+                Map.of("currentUserId", param -> param.getRuntimeContext().get(UserContext.class).userId()));
 
-        return FastMcp.server("Order MCP")
-                .tool("getOrdersByUserId", "Internal raw order lookup by user id", rawSchema,
-                        arguments -> ToolResult.text("orders for " + arguments.getString("userId")
-                                + " with status " + arguments.getString("status")));
+        assertEquals("getOrdersByUserId", mapping.rawName());
+        assertEquals("get_my_orders", mapping.name());
+        assertEquals("Get orders for the authenticated user.", mapping.description());
+        assertFalse(mapping.inputSchema().toString().contains("userId"));
+        assertEquals(Map.of("status", "orderStatus"), mapping.argumentMappings());
+        assertTrue(mapping.readOnly());
+
+        ToolCallParam param = ToolCallParam.builder()
+                .runtimeContext(RuntimeContext.builder()
+                        .put(UserContext.class, new UserContext("user-123"))
+                        .build())
+                .build();
+        assertEquals("user-123", mapping.injectedArguments().get("userId").resolve(param));
     }
 
     private FastMcpToolMapping currentUserOrdersMapping() {
@@ -170,11 +184,26 @@ class FastMcpAgentScopeToolsTest {
                 .build();
     }
 
+    private SafeMcpToolConfiguration currentUserOrdersToolConfig() {
+        return SafeMcpToolConfiguration.builder("getOrdersByUserId")
+                .name("get_my_orders")
+                .description("Get orders for the authenticated user.")
+                .inputSchema(virtualOrderSchema())
+                .mapArgument("status", "orderStatus")
+                .injectArgument("userId", "currentUserId")
+                .readOnly(true)
+                .build();
+    }
+
     private ObjectNode virtualOrderSchema() {
-        ObjectNode virtualSchema = JsonSchemas.object();
-        JsonSchemas.addProperty(virtualSchema, "status", JsonSchemas.string());
-        JsonSchemas.require(virtualSchema, "status");
-        return virtualSchema;
+        ObjectNode schema = JsonNodeFactory.instance.objectNode();
+        schema.put("type", "object");
+        ObjectNode properties = schema.putObject("properties");
+        ObjectNode status = JsonNodeFactory.instance.objectNode();
+        status.put("type", "string");
+        properties.set("status", status);
+        schema.putArray("required").add("status");
+        return schema;
     }
 
     private static final class UserContext {
@@ -186,6 +215,31 @@ class FastMcpAgentScopeToolsTest {
 
         private String userId() {
             return userId;
+        }
+    }
+
+    private static final class RawOrderTool extends ToolBase {
+        private RawOrderTool() {
+            super(ToolBase.builder()
+                    .name("getOrdersByUserId")
+                    .description("Internal raw order lookup by user id")
+                    .inputSchema(Map.of(
+                            "type", "object",
+                            "properties", Map.of(
+                                    "userId", Map.of("type", "string"),
+                                    "status", Map.of("type", "string")),
+                            "required", List.of("userId", "status")))
+                    .readOnly(true)
+                    .concurrencySafe(true));
+        }
+
+        @Override
+        public Mono<ToolResultBlock> callAsync(ToolCallParam param) {
+            return Mono.just(ToolResultBlock.of(param.getToolUseBlock().getId(), getName(),
+                    TextBlock.builder()
+                            .text("orders for " + param.getInput().get("userId")
+                                    + " with status " + param.getInput().get("status"))
+                            .build()));
         }
     }
 

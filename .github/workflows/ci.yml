@@ -6,7 +6,7 @@ on:
   pull_request:
 
 jobs:
-  test:
+  java11-safe-modules:
     runs-on: ubuntu-latest
     steps:
       - name: Check out
@@ -19,10 +19,10 @@ jobs:
           java-version: "11"
           cache: maven
 
-      - name: Test
-        run: mvn -B test
+      - name: Test Java 11 safe modules
+        run: mvn -B -pl fastmcp-safe-core,fastmcp-safe-config -am test
 
-  agentscope:
+  java17-full-build:
     runs-on: ubuntu-latest
     steps:
       - name: Check out
@@ -35,8 +35,8 @@ jobs:
           java-version: "17"
           cache: maven
 
-      - name: Test AgentScope adapter
-        run: mvn -B -Pagentscope test
+      - name: Test full reactor
+        run: mvn -B test
 
       - name: Test AgentScope example
         run: mvn -B -Pexamples test

@@ -1,6 +1,7 @@
 package io.github.sandking.fastmcp.agentscope;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import io.github.sandking.fastmcp.safe.config.SafeMcpToolConfiguration;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -29,6 +30,27 @@ public final class FastMcpToolMapping {
 
     public static Builder builder(String rawName) {
         return new Builder(rawName);
+    }
+
+    public static FastMcpToolMapping from(
+            SafeMcpToolConfiguration configuration, Map<String, ToolArgumentResolver> resolvers) {
+        Objects.requireNonNull(configuration, "configuration must not be null");
+        Objects.requireNonNull(resolvers, "resolvers must not be null");
+        Builder builder = builder(configuration.rawName())
+                .name(configuration.name())
+                .description(configuration.description())
+                .inputSchema(configuration.inputSchema())
+                .readOnly(configuration.readOnly())
+                .concurrencySafe(configuration.concurrencySafe());
+        configuration.argumentMappings().forEach(builder::mapArgument);
+        configuration.injectedArguments().forEach((rawName, sourceName) -> {
+            ToolArgumentResolver resolver = resolvers.get(sourceName);
+            if (resolver == null) {
+                throw new IllegalArgumentException("Injected argument resolver not found: " + sourceName);
+            }
+            builder.injectArgument(rawName, resolver);
+        });
+        return builder.build();
     }
 
     public String rawName() {
