@@ -8,6 +8,9 @@ import java.util.Map;
 import java.util.Objects;
 
 public final class SpringAiMcpToolMapping {
+    public static final String DEFAULT_RAW_SERVER_NAME = "spring-ai";
+
+    private final String rawServerName;
     private final String rawName;
     private final String name;
     private final String description;
@@ -18,6 +21,7 @@ public final class SpringAiMcpToolMapping {
     private final boolean concurrencySafe;
 
     private SpringAiMcpToolMapping(Builder builder) {
+        this.rawServerName = requireText(builder.rawServerName, "rawServerName");
         this.rawName = requireText(builder.rawName, "rawName");
         this.name = requireText(builder.name, "name");
         this.description = requireText(builder.description, "description");
@@ -29,14 +33,23 @@ public final class SpringAiMcpToolMapping {
     }
 
     public static Builder builder(String rawName) {
-        return new Builder(rawName);
+        return new Builder(DEFAULT_RAW_SERVER_NAME, rawName);
+    }
+
+    public static Builder builder(String rawServerName, String rawName) {
+        return new Builder(rawServerName, rawName);
     }
 
     public static SpringAiMcpToolMapping from(
             SafeMcpToolConfiguration configuration, Map<String, SpringAiToolArgumentResolver> resolvers) {
+        return from(DEFAULT_RAW_SERVER_NAME, configuration, resolvers);
+    }
+
+    public static SpringAiMcpToolMapping from(String rawServerName,
+            SafeMcpToolConfiguration configuration, Map<String, SpringAiToolArgumentResolver> resolvers) {
         Objects.requireNonNull(configuration, "configuration must not be null");
         Objects.requireNonNull(resolvers, "resolvers must not be null");
-        Builder builder = builder(configuration.rawName())
+        Builder builder = builder(rawServerName, configuration.rawName())
                 .name(configuration.name())
                 .description(configuration.description())
                 .inputSchema(configuration.inputSchema())
@@ -51,6 +64,10 @@ public final class SpringAiMcpToolMapping {
             builder.injectArgument(rawName, resolver);
         });
         return builder.build();
+    }
+
+    public String rawServerName() {
+        return rawServerName;
     }
 
     public String rawName() {
@@ -95,6 +112,7 @@ public final class SpringAiMcpToolMapping {
     }
 
     public static final class Builder {
+        private final String rawServerName;
         private final String rawName;
         private String name;
         private String description;
@@ -104,7 +122,8 @@ public final class SpringAiMcpToolMapping {
         private boolean readOnly;
         private boolean concurrencySafe;
 
-        private Builder(String rawName) {
+        private Builder(String rawServerName, String rawName) {
+            this.rawServerName = requireText(rawServerName, "rawServerName");
             this.rawName = requireText(rawName, "rawName");
         }
 

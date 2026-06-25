@@ -48,30 +48,47 @@ public final class FastMcpSpringAiTools {
     }
 
     public static ToolCallbackProvider wrap(List<ToolCallback> rawCallbacks, List<SpringAiMcpToolMapping> mappings) {
+        return wrap(SpringAiMcpToolMapping.DEFAULT_RAW_SERVER_NAME, rawCallbacks, mappings);
+    }
+
+    public static ToolCallbackProvider wrap(String defaultRawServerName, List<ToolCallback> rawCallbacks,
+            List<SpringAiMcpToolMapping> mappings) {
+        SpringAiMcpToolMapping.requireText(defaultRawServerName, "defaultRawServerName");
         Objects.requireNonNull(rawCallbacks, "rawCallbacks must not be null");
         Objects.requireNonNull(mappings, "mappings must not be null");
 
         Map<String, ToolCallback> rawTools = new LinkedHashMap<>();
         for (ToolCallback rawCallback : rawCallbacks) {
             Objects.requireNonNull(rawCallback, "rawCallback must not be null");
-            rawTools.put(rawCallback.getToolDefinition().name(), rawCallback);
-            originalToolName(rawCallback).ifPresent(name -> rawTools.put(name, rawCallback));
+            String rawServerName = originalServerName(rawCallback).orElse(defaultRawServerName);
+            rawTools.put(rawKey(rawServerName, rawCallback.getToolDefinition().name()), rawCallback);
+            originalToolName(rawCallback).ifPresent(name -> rawTools.put(rawKey(rawServerName, name), rawCallback));
         }
 
         List<ToolCallback> safeCallbacks = new ArrayList<>();
         for (SpringAiMcpToolMapping mapping : mappings) {
-            ToolCallback rawCallback = rawTools.get(Objects.requireNonNull(mapping, "mapping must not be null").rawName());
+            SpringAiMcpToolMapping safeMapping = Objects.requireNonNull(mapping, "mapping must not be null");
+            ToolCallback rawCallback = rawTools.get(rawKey(safeMapping.rawServerName(), safeMapping.rawName()));
             if (rawCallback == null) {
-                throw new IllegalArgumentException("Raw Spring AI tool not found: " + mapping.rawName());
+                throw new IllegalArgumentException("Raw Spring AI tool not found: "
+                        + safeMapping.rawServerName() + "/" + safeMapping.rawName());
             }
-            safeCallbacks.add(new SafeSpringAiToolCallback(rawCallback, mapping));
+            safeCallbacks.add(new SafeSpringAiToolCallback(rawCallback, safeMapping));
         }
         return ToolCallbackProvider.from(safeCallbacks);
     }
 
     private static java.util.Optional<String> originalToolName(ToolCallback rawCallback) {
+        return reflectedString(rawCallback, "getOriginalToolName");
+    }
+
+    private static java.util.Optional<String> originalServerName(ToolCallback rawCallback) {
+        return reflectedString(rawCallback, "getOriginalServerName");
+    }
+
+    private static java.util.Optional<String> reflectedString(ToolCallback rawCallback, String methodName) {
         try {
-            Method method = rawCallback.getClass().getMethod("getOriginalToolName");
+            Method method = rawCallback.getClass().getMethod(methodName);
             Object value = method.invoke(rawCallback);
             if (value instanceof String && !((String) value).trim().isEmpty()) {
                 return java.util.Optional.of((String) value);
@@ -80,6 +97,11 @@ public final class FastMcpSpringAiTools {
         } catch (ReflectiveOperationException exception) {
             return java.util.Optional.empty();
         }
+    }
+
+    private static String rawKey(String rawServerName, String rawToolName) {
+        return SpringAiMcpToolMapping.requireText(rawServerName, "rawServerName") + "\n"
+                + SpringAiMcpToolMapping.requireText(rawToolName, "rawToolName");
     }
 
     private static final class SafeSpringAiToolCallback implements ToolCallback {
@@ -93,7 +115,7 @@ public final class FastMcpSpringAiTools {
                     inputSchema(mapping));
             this.safeTool = new SafeMcpTool("spring-ai", toSafeSpec(rawCallback, mapping),
                     (serverName, rawToolName, rawArguments, context) -> CompletableFuture.completedFuture(
-                            RawToolResult.text(rawCallback.call(toJson(rawArguments), currentToolContext()))));
+                            RawToolResult.text(rawCallback.call(toJson(rawArguments), toolContext(context)))));
         }
 
         @Override
@@ -113,7 +135,6 @@ public final class FastMcpSpringAiTools {
 
         @Override
         public String call(String toolInput, ToolContext toolContext) {
-            ToolContextHolder.set(toolContext == null ? new ToolContext(Map.of()) : toolContext);
             try {
                 SafeToolResult result = safeTool.callAsync(input(toolInput), safeContext(toolContext))
                         .toCompletableFuture()
@@ -125,19 +146,17 @@ public final class FastMcpSpringAiTools {
                     throw (RuntimeException) cause;
                 }
                 throw new SafeMcpException("SPRING_AI_TOOL_FAILED", cause.getMessage(), cause);
-            } finally {
-                ToolContextHolder.clear();
             }
         }
 
-        private static ToolContext currentToolContext() {
-            ToolContext context = ToolContextHolder.get();
+        private static ToolContext toolContext(SafeToolCallContext safeContext) {
+            ToolContext context = safeContext.frameworkContext(ToolContext.class);
             return context == null ? new ToolContext(Map.of()) : context;
         }
     }
 
     private static SafeMcpToolSpec toSafeSpec(ToolCallback rawCallback, SpringAiMcpToolMapping mapping) {
-        SafeMcpToolSpec.Builder builder = SafeMcpToolSpec.builder("spring-ai", mapping.rawName())
+        SafeMcpToolSpec.Builder builder = SafeMcpToolSpec.builder(mapping.rawServerName(), mapping.rawName())
                 .name(mapping.name())
                 .description(description(mapping))
                 .inputSchema(mapping.inputSchema())
@@ -196,19 +215,4 @@ public final class FastMcpSpringAiTools {
         }
     }
 
-    private static final class ToolContextHolder {
-        private static final ThreadLocal<ToolContext> CONTEXT = new ThreadLocal<>();
-
-        static void set(ToolContext context) {
-            CONTEXT.set(context);
-        }
-
-        static ToolContext get() {
-            return CONTEXT.get();
-        }
-
-        static void clear() {
-            CONTEXT.remove();
-        }
-    }
 }

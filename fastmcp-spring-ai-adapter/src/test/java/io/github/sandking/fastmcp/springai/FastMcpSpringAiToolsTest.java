@@ -81,7 +81,7 @@ class FastMcpSpringAiToolsTest {
         IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
                 () -> FastMcpSpringAiTools.wrap(new ToolCallback[] { rawTool }, currentUserOrdersMapping()));
 
-        assertEquals("Raw Spring AI tool not found: getOrdersByUserId", exception.getMessage());
+        assertEquals("Raw Spring AI tool not found: spring-ai/getOrdersByUserId", exception.getMessage());
     }
 
     @Test
@@ -113,6 +113,7 @@ class FastMcpSpringAiToolsTest {
         SpringAiMcpToolMapping mapping = SpringAiMcpToolMapping.from(currentUserOrdersToolConfig(),
                 Map.of("currentUserId", context -> context.getContext().get("userId")));
 
+        assertEquals("spring-ai", mapping.rawServerName());
         assertEquals("getOrdersByUserId", mapping.rawName());
         assertEquals("get_my_orders", mapping.name());
         assertEquals("Get orders for the authenticated user.", mapping.description());
@@ -123,9 +124,40 @@ class FastMcpSpringAiToolsTest {
                 .resolve(new ToolContext(Map.of("userId", "user-123"))));
     }
 
+    @Test
+    void matchesRawCallbacksByServerWhenRawToolNamesCollide() throws Exception {
+        ServerNamedToolCallback ordersTool = new ServerNamedToolCallback(
+                "mcp__orders__getOrdersByUserId",
+                "orders",
+                "getOrdersByUserId",
+                rawOrderSchema());
+        ServerNamedToolCallback catalogTool = new ServerNamedToolCallback(
+                "mcp__catalog__getOrdersByUserId",
+                "catalog",
+                "getOrdersByUserId",
+                rawOrderSchema());
+
+        ToolCallbackProvider provider = FastMcpSpringAiTools.wrap(new ToolCallback[] { ordersTool, catalogTool },
+                currentUserOrdersMapping("orders", "get_my_orders"),
+                currentUserOrdersMapping("catalog", "get_catalog_orders"));
+        ToolCallback[] callbacks = provider.getToolCallbacks();
+
+        assertEquals("get_my_orders", callbacks[0].getToolDefinition().name());
+        assertEquals("get_catalog_orders", callbacks[1].getToolDefinition().name());
+        callbacks[0].call("{\"status\":\"PAID\"}", new ToolContext(Map.of("userId", "orders-user")));
+        callbacks[1].call("{\"status\":\"OPEN\"}", new ToolContext(Map.of("userId", "catalog-user")));
+
+        assertEquals(Map.of("status", "PAID", "userId", "orders-user"), ordersTool.lastInput());
+        assertEquals(Map.of("status", "OPEN", "userId", "catalog-user"), catalogTool.lastInput());
+    }
+
     private static SpringAiMcpToolMapping currentUserOrdersMapping() {
-        return SpringAiMcpToolMapping.builder("getOrdersByUserId")
-                .name("get_my_orders")
+        return currentUserOrdersMapping(SpringAiMcpToolMapping.DEFAULT_RAW_SERVER_NAME, "get_my_orders");
+    }
+
+    private static SpringAiMcpToolMapping currentUserOrdersMapping(String rawServerName, String virtualName) {
+        return SpringAiMcpToolMapping.builder(rawServerName, "getOrdersByUserId")
+                .name(virtualName)
                 .description("Get orders for the authenticated user.")
                 .inputSchema(virtualOrderSchema())
                 .injectArgument("userId", context -> context.getContext().get("userId"))
@@ -207,6 +239,26 @@ class FastMcpSpringAiToolsTest {
         private OriginalNameToolCallback(String name, String originalToolName, String inputSchema) {
             super(name, inputSchema);
             this.originalToolName = originalToolName;
+        }
+
+        public String getOriginalToolName() {
+            return originalToolName;
+        }
+    }
+
+    private static final class ServerNamedToolCallback extends CapturingToolCallback {
+        private final String originalServerName;
+        private final String originalToolName;
+
+        private ServerNamedToolCallback(String name, String originalServerName, String originalToolName,
+                String inputSchema) {
+            super(name, inputSchema);
+            this.originalServerName = originalServerName;
+            this.originalToolName = originalToolName;
+        }
+
+        public String getOriginalServerName() {
+            return originalServerName;
         }
 
         public String getOriginalToolName() {
