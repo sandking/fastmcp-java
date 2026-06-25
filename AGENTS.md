@@ -24,8 +24,8 @@ Always respond in Chinese-simplified
 
 ## 2. 模块职责边界
 
-- `fastmcp-safe-core`：框架无关的 Safe MCP Registration 核心，负责 virtual tool spec、virtual-to-raw argument mapping、protected argument injection、policy、raw invoker 和 audit event。
-- `fastmcp-safe-config`：框架无关的 Safe MCP Registration 配置模型，负责描述 MCP server、HTTP 连接配置、virtual tool、argument mapping 和 protected argument source name。它只做不可变配置表达和校验，不创建 MCP client，不绑定 Spring Boot properties。
+- `fastmcp-safe-core`：框架无关的 Safe MCP Registration 核心，负责 virtual tool spec、virtual-to-raw argument mapping、protected argument injection、protected schema guard、policy、raw invoker 和 audit event。
+- `fastmcp-safe-config`：框架无关的 Safe MCP Registration 配置模型，负责描述 MCP server、HTTP 连接配置、virtual tool、argument mapping 和 protected argument source name。它只做不可变配置表达和校验，包括拒绝 virtual input schema 暴露 injected protected arguments；不创建 MCP client，不绑定 Spring Boot properties。
 - `fastmcp-safe-spring-boot-autoconfigure-support`：框架 adapter 无关的 Spring Boot 4.x 配置绑定支持，负责 `fastmcp.safe.*` 的 `@ConfigurationProperties` 模型和 `SafeMcpConfiguration` factory。它不创建 MCP client，不包装 AgentScope 或 Spring AI 工具，也不是应用侧直接使用的 starter。
 - `fastmcp-agentscope-adapter`：AgentScope Toolkit adapter，核心目标是把 raw backend tool 或 raw AgentScope/MCP tool 包装成模型可见的安全虚拟工具；通用 mapping/injection/policy 行为应委托 `fastmcp-safe-core`。
 - `fastmcp-agentscope-boot-starter`：Spring Boot 4.x + AgentScope Java 2.x auto-configuration，复用 `fastmcp-safe-spring-boot-autoconfigure-support` 绑定 `fastmcp.safe.*` 并创建 `SafeMcpConfiguration`，把配置转换为 AgentScope mapping。它可以基于配置创建 managed AgentScope `McpClientWrapper`，支持 `streamable-http`、`sse` 和兼容用的 `stdio`，并把 managed raw MCP clients 留在 auto-configuration 内部，只向应用提供的 `Toolkit` 注册 virtual tools。MCP client 和 transport 行为应委托 AgentScope Java / MCP Java SDK；starter 只负责配置 glue、session/cookie 等必要 HTTP client 定制、安全包装和 raw client 隐藏。它不创建 AgentScope agent/model，也不拥有 `Toolkit` 生命周期；应用或 AgentScope 自身 auto-configuration 需要提供 `Toolkit` bean。
@@ -48,6 +48,7 @@ Always respond in Chinese-simplified
   - 提供只包含模型可填业务字段的虚拟 `inputSchema`
   - 使用 `mapArgument` 做普通业务字段映射
   - 使用 `injectArgument` 注入受保护 raw 参数
+- virtual `inputSchema.properties` 不能包含被注入的 raw 参数名，也不能包含映射到该 raw 参数的 virtual alias；`fastmcp-safe-core` 和 `fastmcp-safe-config` 的 builder 会拒绝这种配置。
 - `FastMcpAgentScopeTools.register(toolkit, rawAgentTool, mapping)` 是包装 raw AgentScope tool 的安全入口。
 - `FastMcpAgentScopeTools.registerMcpClient(toolkit, client, mappings)` 是包装 AgentScope `McpClientWrapper` 的安全入口；它可以让 AgentScope 继续处理 MCP 协议细节，但只向传入的 `Toolkit` 注册 mapped virtual tools。
 - 不要在安全场景中直接使用 `toolkit.registerMcpClient(client)` 把 MCP tools 全量注入模型可见 Toolkit，除非本轮任务明确需要复现或对比 AgentScope 原生行为。
@@ -92,6 +93,7 @@ Always respond in Chinese-simplified
   - `http.headers` 和 `http.query-params` 只作为 MCP client HTTP 连接配置透传给 Spring AI / MCP Java SDK transport，不属于模型可见 metadata；如有敏感值，使用 Spring Boot 占位符或部署环境注入，本库不提供 secret resolver
   - `http.cookies.enabled` 默认是 `true`，用于 streamable-http / SSE 的会话粘性；关闭前必须确认目标 MCP server 不依赖 cookie session
   - auto-configuration 创建的 managed raw provider 不作为 Spring bean 暴露；发布的 `fastMcpSafeToolCallbackProvider` 是 primary
+  - managed raw provider 会按 configured server 分别包装；允许不同 server 下存在同名 raw tool，但 mapping 必须带 server name，Boot starter 会自动从 `fastmcp.safe.servers.<server>` 传入
   - 外部 raw provider bean 仍然可能存在；应用侧不要把 raw provider 集合直接交给模型
 
 ## 5. AgentScope 依赖核对规则
@@ -110,7 +112,7 @@ Always respond in Chinese-simplified
 - 当前 Spring AI adapter 依赖 `org.springframework.ai:spring-ai-model:2.0.0`，模块 release 为 Java 17。Spring AI Boot starter 额外依赖 `org.springframework.ai:spring-ai-mcp:2.0.0` 来创建 managed MCP clients。
 - Spring AI 2.x 依赖 Spring Framework 7.x 等较新版本线；Spring AI Boot starter 使用 Spring Boot 4.0.7。不要让其他 Spring Boot BOM 在根 POM 全局生效，否则可能把 Spring AI / Boot 4 transitive dependencies 降到不兼容版本。
 - 涉及 `ToolCallback`、`ToolCallbackProvider`、`ToolDefinition`、`ToolContext` 或 Spring AI MCP callback 行为时，优先核对当前依赖字节码或源码，再对照官方文档。
-- 当前 Spring AI adapter 通过反射兼容带 `getOriginalToolName()` 的 MCP callback；mapping raw name 可以是 `ToolDefinition.name()`，也可以是 MCP callback 暴露的 original tool name。
+- 当前 Spring AI adapter 通过反射兼容带 `getOriginalServerName()` / `getOriginalToolName()` 的 MCP callback；mapping raw key 是 `rawServerName + rawName`，raw name 可以是 `ToolDefinition.name()`，也可以是 MCP callback 暴露的 original tool name。手写 mapping 如果需要区分同名 raw tool，应使用 `SpringAiMcpToolMapping.builder(rawServerName, rawName)` 或 `SpringAiMcpToolMapping.from(rawServerName, configuration, resolvers)`。
 - 当前根 POM 的 `jackson.version` 仍是 `2.17.2`，但 `jackson.annotations.version` 单独固定为 `2.21`，这是为了满足 MCP SDK 2.0.0 的 Jackson3 transport 初始化路径对 `JsonSerializeAs` 的运行时需求；不要未经验证把 `jackson-annotations` 降回 `2.17.x` 或其它不包含该类的版本。Spring AI Boot starter 也显式依赖 `com.fasterxml.jackson.core:jackson-annotations` 来表达这个 runtime requirement。
 - 不要把 README 或计划文档当作唯一事实源；必须核对当前 Java 源码、POM 和测试。
 

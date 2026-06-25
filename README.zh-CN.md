@@ -48,7 +48,7 @@ MCP raw tools
 - AG-UI SSE stream 和 tool event 链路的端到端验证
 - Resources 和 prompts
 - Spring 之外的普通 classpath package scanning
-- 完整 authentication flow、OAuth、secret handling 和 production middleware
+- 完整 authentication flow、OAuth、secret lifecycle 和 production middleware
 - Protocol conformance tests
 
 ## Safe core
@@ -58,6 +58,7 @@ MCP raw tools
 - virtual tool name、description 和 schema
 - virtual-to-raw argument mapping
 - protected argument injection
+- 校验 virtual input schema，拒绝暴露 injected protected arguments
 - raw tool 调用前的 policy decision
 - audit event 默认只记录 injected argument names，不记录 injected values
 
@@ -84,12 +85,20 @@ SafeMcpToolConfiguration getMyOrders = SafeMcpToolConfiguration.builder("getOrde
     .build();
 ```
 
+virtual input schema 只能包含模型可填写的业务字段。如果 `userId` 这类 injected
+raw argument，或者映射到它的 virtual alias 出现在 `inputSchema.properties` 中，
+config/spec builder 会在模型调用发生前直接拒绝。
+
 adapter 通过 resolver registry 把这份共享配置转换成框架自己的 mapping：
 
 ```java
 SpringAiMcpToolMapping mapping = SpringAiMcpToolMapping.from(getMyOrders,
     Map.of("currentUserId", context -> context.getContext().get("userId")));
 ```
+
+如果多个 MCP server 可能暴露同名 raw tool，需要显式带上 server name，例如
+`SpringAiMcpToolMapping.from("orders", getMyOrders, resolvers)`。Boot starter
+会自动从 `fastmcp.safe.servers.<server>` 传入 server name。
 
 `currentUserId` 是配置里的 source name，不是敏感值本身。真实值仍然在工具调用时
 从框架 runtime context 中解析。
@@ -154,8 +163,9 @@ fastmcp.safe.servers.orders.sse-endpoint=/events
 starter 会创建 managed Spring AI `McpSyncClient`，初始化 client，把这些 MCP raw
 tools 转成内部 raw callbacks，再按配置包装成安全 provider，并发布名为
 `fastMcpSafeToolCallbackProvider` 的 primary 安全 provider。managed raw provider
-不会作为 Spring bean 暴露。已有外部 raw Spring AI `ToolCallbackProvider` bean 仍然
-兼容，但应用侧应该把 safe provider 交给模型。
+不会作为 Spring bean 暴露。managed raw callbacks 会按配置 server 分别包装，因此
+不同 server 下可以存在同名 raw MCP tool，不会串到同一个 raw provider。已有外部 raw
+Spring AI `ToolCallbackProvider` bean 仍然兼容，但应用侧应该把 safe provider 交给模型。
 
 如果走外部 raw provider 兼容路径，可以设置
 `fastmcp.safe.servers.<server>.enabled=false` 跳过 managed client 创建，同时继续用
@@ -315,8 +325,9 @@ ToolCallbackProvider safeProvider = FastMcpSpringAiTools.wrap(rawProvider, List.
   包装成安全 provider，并从 `ToolContext` 注入受保护参数。
 - `fastmcp-examples/spring-ai-boot-starter`：绑定 `fastmcp.safe.*`，声明
   `currentUserId` 等 resolver bean，并验证 starter 基于已有 raw provider
-  发布 primary 的 `fastMcpSafeToolCallbackProvider`。managed MCP client 路径当前由
-  starter 单元测试覆盖，后续补真实 MCP server 示例。
+  发布 primary 的 `fastMcpSafeToolCallbackProvider`。managed MCP client 路径，包括
+  streamable HTTP transport 和按 server 隔离 raw provider，当前由 starter 测试覆盖，
+  后续补真实 MCP server 示例。
 
 运行全部示例：
 
@@ -362,6 +373,7 @@ fastmcp-agentscope-boot-starter
   io.github.sandking.fastmcp.agentscope.boot
     FastMcpAgentScopeSafeAutoConfiguration Spring Boot auto-configuration
     FastMcpAgentScopeManagedClientFactory creates managed AgentScope MCP clients
+    FastMcpAgentScopeHttpClientSupport package-private HTTP/SSE client glue
     FastMcpAgentScopeSafeRegistrar registers virtual tools into Toolkit
 
 fastmcp-spring-ai-adapter
@@ -374,6 +386,7 @@ fastmcp-spring-ai-boot-starter
   io.github.sandking.fastmcp.springai.boot
     FastMcpSafeAutoConfiguration Spring Boot auto-configuration
     FastMcpSpringAiManagedClientFactory creates managed Spring AI MCP clients
+    FastMcpSpringAiHttpTransportSupport package-private HTTP/SSE transport glue
     FastMcpManagedSpringAiToolCallbackProvider closes managed clients
 
 fastmcp-examples/agentscope-adapter

@@ -54,8 +54,7 @@ Not implemented yet:
 - End-to-end validation for AG-UI SSE stream and the tool event chain
 - Resources and prompts
 - Plain classpath package scanning outside Spring
-- Authentication, custom headers, OAuth, secret handling, and production
-- Full authentication flows, OAuth, secret handling, and production middleware
+- Full authentication flows, OAuth, secret lifecycle, and production middleware
 - Protocol conformance tests
 
 ## Safe core
@@ -65,6 +64,8 @@ Use `fastmcp-safe-core` when you need the framework-neutral safety layer:
 - virtual tool name, description, and schema
 - virtual-to-raw argument mapping
 - protected argument injection
+- schema validation that rejects virtual input schemas exposing protected
+  arguments
 - policy decisions before raw tool invocation
 - audit events that record injected argument names but not injected values
 
@@ -92,6 +93,11 @@ SafeMcpToolConfiguration getMyOrders = SafeMcpToolConfiguration.builder("getOrde
     .build();
 ```
 
+The virtual input schema must contain only model-fillable business fields. If an
+injected raw argument such as `userId`, or a virtual alias that maps to it, appears
+in `inputSchema.properties`, the config/spec builder rejects it before any model
+call can be made.
+
 Adapters convert this shared config into framework-specific mappings by supplying
 a resolver registry:
 
@@ -99,6 +105,11 @@ a resolver registry:
 SpringAiMcpToolMapping mapping = SpringAiMcpToolMapping.from(getMyOrders,
     Map.of("currentUserId", context -> context.getContext().get("userId")));
 ```
+
+When multiple configured MCP servers can expose the same raw tool name, pass the
+server name explicitly, for example `SpringAiMcpToolMapping.from("orders",
+getMyOrders, resolvers)`. Boot starters do this automatically from
+`fastmcp.safe.servers.<server>`.
 
 The source name `currentUserId` is configuration, not the sensitive value. The
 actual value still comes from framework runtime context at call time.
@@ -166,9 +177,11 @@ The starter creates managed Spring AI `McpSyncClient`s, initializes them, turns
 their raw MCP tools into internal raw callbacks, wraps them with the configured
 safe mappings, and publishes a primary safe provider named
 `fastMcpSafeToolCallbackProvider`. The managed raw provider is not published as a
-Spring bean. Existing external raw Spring AI `ToolCallbackProvider` beans are
-still supported for compatibility, but application code should inject and pass
-the safe provider to the model.
+Spring bean. Managed raw callbacks are wrapped per configured server, so the same
+raw MCP tool name can exist under different servers without cross-wiring.
+Existing external raw Spring AI `ToolCallbackProvider` beans are still supported
+for compatibility, but application code should inject and pass the safe provider
+to the model.
 
 For an external raw-provider compatibility path, set
 `fastmcp.safe.servers.<server>.enabled=false` to skip managed client creation
@@ -340,8 +353,9 @@ integration paths:
 - `fastmcp-examples/spring-ai-boot-starter`: binds `fastmcp.safe.*`, declares resolver
   beans such as `currentUserId`, and verifies that the starter publishes the
   primary `fastMcpSafeToolCallbackProvider` from an existing raw provider. The
-  managed MCP client path is covered by starter unit tests until a real MCP
-  server example is added.
+  managed MCP client path, including streamable HTTP transport and per-server raw
+  provider scoping, is covered by starter tests until a real MCP server example is
+  added.
 
 Run all examples with:
 
@@ -387,6 +401,7 @@ fastmcp-agentscope-boot-starter
   io.github.sandking.fastmcp.agentscope.boot
     FastMcpAgentScopeSafeAutoConfiguration Spring Boot auto-configuration
     FastMcpAgentScopeManagedClientFactory creates managed AgentScope MCP clients
+    FastMcpAgentScopeHttpClientSupport package-private HTTP/SSE client glue
     FastMcpAgentScopeSafeRegistrar registers virtual tools into Toolkit
 
 fastmcp-spring-ai-adapter
@@ -399,6 +414,7 @@ fastmcp-spring-ai-boot-starter
   io.github.sandking.fastmcp.springai.boot
     FastMcpSafeAutoConfiguration Spring Boot auto-configuration
     FastMcpSpringAiManagedClientFactory creates managed Spring AI MCP clients
+    FastMcpSpringAiHttpTransportSupport package-private HTTP/SSE transport glue
     FastMcpManagedSpringAiToolCallbackProvider closes managed clients
 
 fastmcp-examples/agentscope-adapter
