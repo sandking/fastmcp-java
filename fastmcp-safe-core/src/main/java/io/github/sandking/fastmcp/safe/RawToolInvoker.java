@@ -5,5 +5,6 @@ import java.util.concurrent.CompletionStage;
 
 @FunctionalInterface
 public interface RawToolInvoker {
-    CompletionStage<RawToolResult> callAsync(String serverName, String rawToolName, Map<String, Object> rawArguments);
+    CompletionStage<RawToolResult> callAsync(String serverName, String rawToolName, Map<String, Object> rawArguments,
+            SafeToolCallContext context);
 }

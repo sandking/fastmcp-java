@@ -89,7 +89,7 @@ public final class FastMcpAgentScopeTools {
             SafeMcpTool safeTool = new SafeMcpTool("agentscope",
                     toSafeSpec(mapping, rawServerName, rawTool.getName(), description(rawTool, mapping), null,
                             readOnly(rawTool, mapping), concurrencySafe(rawTool, mapping)),
-                    (serverName, rawToolName, rawArguments) -> rawTool.callAsync(toRawParam(param, rawArguments))
+                    (serverName, rawToolName, rawArguments, context) -> rawTool.callAsync(toRawParam(param, rawArguments))
                             .map(FastMcpAgentScopeTools::toRawToolResult)
                             .toFuture());
             return Mono.fromCompletionStage(safeTool.callAsync(input(param), safeContext(param)))

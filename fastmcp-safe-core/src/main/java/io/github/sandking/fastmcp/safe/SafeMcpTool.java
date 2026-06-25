@@ -48,7 +48,7 @@ public final class SafeMcpTool {
                 return failed(exception);
             }
             CompletionStage<RawToolResult> rawResult = rawToolInvoker.callAsync(spec.rawServerName(), spec.rawToolName(),
-                    Collections.unmodifiableMap(new LinkedHashMap<>(rawArguments)));
+                    Collections.unmodifiableMap(new LinkedHashMap<>(rawArguments)), safeContext);
             return rawResult.handle((result, exception) -> {
                 if (exception != null) {
                     Throwable cause = unwrap(exception);

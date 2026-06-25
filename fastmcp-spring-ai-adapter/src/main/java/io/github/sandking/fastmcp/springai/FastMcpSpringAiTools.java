@@ -92,7 +92,7 @@ public final class FastMcpSpringAiTools {
             this.toolDefinition = new DefaultToolDefinition(mapping.name(), description(mapping),
                     inputSchema(mapping));
             this.safeTool = new SafeMcpTool("spring-ai", toSafeSpec(rawCallback, mapping),
-                    (serverName, rawToolName, rawArguments) -> CompletableFuture.completedFuture(
+                    (serverName, rawToolName, rawArguments, context) -> CompletableFuture.completedFuture(
                             RawToolResult.text(rawCallback.call(toJson(rawArguments), currentToolContext()))));
         }
 

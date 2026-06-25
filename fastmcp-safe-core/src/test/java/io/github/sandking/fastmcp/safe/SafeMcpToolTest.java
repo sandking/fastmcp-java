@@ -23,7 +23,7 @@ class SafeMcpToolTest {
         AtomicReference<Map<String, Object>> capturedRawArguments = new AtomicReference<>();
         List<SafeAuditEvent> auditEvents = new ArrayList<>();
         SafeMcpTool tool = new SafeMcpTool("test", orderToolSpec(),
-                (serverName, rawToolName, rawArguments) -> {
+                (serverName, rawToolName, rawArguments, context) -> {
                     capturedRawArguments.set(rawArguments);
                     return CompletableFuture.completedFuture(RawToolResult.text("ok"));
                 },
@@ -55,7 +55,8 @@ class SafeMcpToolTest {
     @Test
     void rejectsModelSuppliedProtectedRawArgument() {
         SafeMcpTool tool = new SafeMcpTool("test", orderToolSpec(),
-                (serverName, rawToolName, rawArguments) -> CompletableFuture.completedFuture(RawToolResult.text("ok")));
+                (serverName, rawToolName, rawArguments, context) -> CompletableFuture.completedFuture(
+                        RawToolResult.text("ok")));
 
         CompletionException exception = assertThrows(CompletionException.class,
                 () -> tool.callAsync(
@@ -76,7 +77,8 @@ class SafeMcpToolTest {
                 .injectArgument("userId", context -> context.userId())
                 .build();
         SafeMcpTool tool = new SafeMcpTool("test", spec,
-                (serverName, rawToolName, rawArguments) -> CompletableFuture.completedFuture(RawToolResult.text("ok")));
+                (serverName, rawToolName, rawArguments, context) -> CompletableFuture.completedFuture(
+                        RawToolResult.text("ok")));
 
         CompletionException exception = assertThrows(CompletionException.class,
                 () -> tool.callAsync(
@@ -119,7 +121,7 @@ class SafeMcpToolTest {
         AtomicBoolean rawCalled = new AtomicBoolean(false);
         List<SafeAuditEvent> auditEvents = new ArrayList<>();
         SafeMcpTool tool = new SafeMcpTool("test", orderToolSpec(),
-                (serverName, rawToolName, rawArguments) -> {
+                (serverName, rawToolName, rawArguments, context) -> {
                     rawCalled.set(true);
                     return CompletableFuture.completedFuture(RawToolResult.text("ok"));
                 },
@@ -145,7 +147,8 @@ class SafeMcpToolTest {
     void auditContainsInjectedNamesButNotInjectedValues() {
         List<SafeAuditEvent> auditEvents = new ArrayList<>();
         SafeMcpTool tool = new SafeMcpTool("test", orderToolSpec(),
-                (serverName, rawToolName, rawArguments) -> CompletableFuture.completedFuture(RawToolResult.text("ok")),
+                (serverName, rawToolName, rawArguments, context) -> CompletableFuture.completedFuture(
+                        RawToolResult.text("ok")),
                 SafeMcpPolicies.allow(),
                 auditEvents::add);
 
@@ -162,6 +165,26 @@ class SafeMcpToolTest {
         assertEquals(SetSupport.of("userId", "tenantId"), event.injectedArgumentNames());
         assertFalse(event.injectedArgumentNames().contains("secret-user"));
         assertFalse(event.injectedArgumentNames().contains("secret-tenant"));
+    }
+
+    @Test
+    void passesSafeContextToRawInvoker() {
+        AtomicReference<SafeToolCallContext> capturedContext = new AtomicReference<>();
+        SafeMcpTool tool = new SafeMcpTool("test", orderToolSpec(),
+                (serverName, rawToolName, rawArguments, context) -> {
+                    capturedContext.set(context);
+                    return CompletableFuture.completedFuture(RawToolResult.text("ok"));
+                });
+        SafeToolCallContext context = SafeToolCallContext.builder()
+                .userId("user-1")
+                .tenantId("tenant-1")
+                .build();
+
+        tool.callAsync(Map.of("status", "paid"), context)
+                .toCompletableFuture()
+                .join();
+
+        assertEquals(context, capturedContext.get());
     }
 
     private static SafeMcpToolSpec orderToolSpec() {
