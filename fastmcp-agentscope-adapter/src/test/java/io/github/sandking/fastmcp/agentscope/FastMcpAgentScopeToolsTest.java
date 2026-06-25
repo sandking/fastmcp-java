@@ -281,12 +281,14 @@ class FastMcpAgentScopeToolsTest {
 
         @Override
         public Mono<Void> initialize() {
-            initialized = true;
-            return Mono.empty();
+            return Mono.fromRunnable(() -> initialized = true);
         }
 
         @Override
         public Mono<List<McpSchema.Tool>> listTools() {
+            if (!initialized) {
+                return Mono.error(new IllegalStateException("MCP client '" + getName() + "' not initialized"));
+            }
             listToolsCalls++;
             return Mono.just(List.of(McpSchema.Tool.builder()
                     .name("getOrdersByUserId")

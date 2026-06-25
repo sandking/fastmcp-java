@@ -1,5 +1,6 @@
-package io.github.sandking.fastmcp.springai.boot;
+package io.github.sandking.fastmcp.safe.boot;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -28,11 +29,27 @@ public class FastMcpSafeProperties {
     }
 
     public static class Server {
+        private boolean enabled = true;
         private String transport;
         private String command;
+        private String endpoint;
+        private String sseEndpoint = "/sse";
+        private Duration requestTimeout;
+        private Duration initializationTimeout;
+        private String clientName;
+        private String clientVersion;
         private List<String> arguments = new ArrayList<>();
         private Map<String, String> environment = new LinkedHashMap<>();
+        private Http http = new Http();
         private Map<String, Tool> tools = new LinkedHashMap<>();
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
+        }
 
         public String getTransport() {
             return transport;
@@ -48,6 +65,54 @@ public class FastMcpSafeProperties {
 
         public void setCommand(String command) {
             this.command = command;
+        }
+
+        public String getEndpoint() {
+            return endpoint;
+        }
+
+        public void setEndpoint(String endpoint) {
+            this.endpoint = endpoint;
+        }
+
+        public String getSseEndpoint() {
+            return sseEndpoint;
+        }
+
+        public void setSseEndpoint(String sseEndpoint) {
+            this.sseEndpoint = hasText(sseEndpoint) ? sseEndpoint : "/sse";
+        }
+
+        public Duration getRequestTimeout() {
+            return requestTimeout;
+        }
+
+        public void setRequestTimeout(Duration requestTimeout) {
+            this.requestTimeout = requestTimeout;
+        }
+
+        public Duration getInitializationTimeout() {
+            return initializationTimeout;
+        }
+
+        public void setInitializationTimeout(Duration initializationTimeout) {
+            this.initializationTimeout = initializationTimeout;
+        }
+
+        public String getClientName() {
+            return clientName;
+        }
+
+        public void setClientName(String clientName) {
+            this.clientName = clientName;
+        }
+
+        public String getClientVersion() {
+            return clientVersion;
+        }
+
+        public void setClientVersion(String clientVersion) {
+            this.clientVersion = clientVersion;
         }
 
         public List<String> getArguments() {
@@ -66,12 +131,66 @@ public class FastMcpSafeProperties {
             this.environment = environment == null ? new LinkedHashMap<>() : environment;
         }
 
+        public Http getHttp() {
+            return http;
+        }
+
+        public void setHttp(Http http) {
+            this.http = http == null ? new Http() : http;
+        }
+
         public Map<String, Tool> getTools() {
             return tools;
         }
 
         public void setTools(Map<String, Tool> tools) {
             this.tools = tools == null ? new LinkedHashMap<>() : tools;
+        }
+    }
+
+    private static boolean hasText(String value) {
+        return value != null && !value.trim().isEmpty();
+    }
+
+    public static class Http {
+        private Map<String, String> headers = new LinkedHashMap<>();
+        private Map<String, String> queryParams = new LinkedHashMap<>();
+        private Cookies cookies = new Cookies();
+
+        public Map<String, String> getHeaders() {
+            return headers;
+        }
+
+        public void setHeaders(Map<String, String> headers) {
+            this.headers = headers == null ? new LinkedHashMap<>() : headers;
+        }
+
+        public Map<String, String> getQueryParams() {
+            return queryParams;
+        }
+
+        public void setQueryParams(Map<String, String> queryParams) {
+            this.queryParams = queryParams == null ? new LinkedHashMap<>() : queryParams;
+        }
+
+        public Cookies getCookies() {
+            return cookies;
+        }
+
+        public void setCookies(Cookies cookies) {
+            this.cookies = cookies == null ? new Cookies() : cookies;
+        }
+    }
+
+    public static class Cookies {
+        private boolean enabled = true;
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
         }
     }
 

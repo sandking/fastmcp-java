@@ -1,22 +1,34 @@
 # FastMCP AgentScope Adapter Example
 
-This example validates the safe virtual tool path:
+This example demonstrates safe registration into an AgentScope `Toolkit`.
 
 ```text
-raw AgentScope/backend tool with userId
-  -> virtual AgentScope tool without userId
-  -> userId injected from server-side RuntimeContext
-  -> delegate back to the raw tool
+raw AgentScope/backend tool: getOrdersByUserId(userId, tenantId, orderStatus, limit)
+  -> FastMcpToolMapping
+  -> virtual tool visible to the model: get_my_orders(status, limit)
+  -> userId and tenantId injected from RuntimeContext
+  -> raw tool called only as an internal delegate
 ```
 
-The goal is to avoid exposing identity-sensitive arguments such as `userId`,
-`memberId`, or `tenantId` to the model.
+It covers:
+
+- model-visible tool name and schema are virtual
+- `status` is mapped to the raw `orderStatus` argument
+- `userId` and `tenantId` are injected from server-side `RuntimeContext`
+- model-supplied protected arguments are rejected before the raw tool is called
 
 Run it from the repository root with JDK 17 or newer:
+
+```bash
+mvn -Pexamples -pl examples/agentscope-adapter -am test
+```
+
+Run all examples:
 
 ```bash
 mvn -Pexamples test
 ```
 
-The adapter implementation lives in `fastmcp-agentscope-adapter`. The example is
-only a runnable usage check and is skipped during Maven deploy.
+This example uses an in-process raw backend tool so the behavior is deterministic.
+It does not start a real MCP server or create an MCP client from FastMCP
+configuration.

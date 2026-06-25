@@ -1,4 +1,4 @@
-package io.github.sandking.fastmcp.springai.boot;
+package io.github.sandking.fastmcp.safe.boot;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -27,14 +27,36 @@ public final class FastMcpSafeConfigurationFactory {
 
     private SafeMcpServerConfiguration server(String serverName, FastMcpSafeProperties.Server properties) {
         SafeMcpServerConfiguration.Builder server = SafeMcpServerConfiguration.builder(serverName);
+        server.enabled(properties.isEnabled());
         if (hasText(properties.getTransport())) {
             server.transport(properties.getTransport());
         }
         if (hasText(properties.getCommand())) {
             server.command(properties.getCommand());
         }
+        if (hasText(properties.getEndpoint())) {
+            server.endpoint(properties.getEndpoint());
+        }
+        if (hasText(properties.getSseEndpoint())) {
+            server.sseEndpoint(properties.getSseEndpoint());
+        }
+        if (properties.getRequestTimeout() != null) {
+            server.requestTimeout(properties.getRequestTimeout());
+        }
+        if (properties.getInitializationTimeout() != null) {
+            server.initializationTimeout(properties.getInitializationTimeout());
+        }
+        if (hasText(properties.getClientName())) {
+            server.clientName(properties.getClientName());
+        }
+        if (hasText(properties.getClientVersion())) {
+            server.clientVersion(properties.getClientVersion());
+        }
         properties.getArguments().forEach(server::argument);
         properties.getEnvironment().forEach(server::environment);
+        properties.getHttp().getHeaders().forEach(server::httpHeader);
+        properties.getHttp().getQueryParams().forEach(server::httpQueryParam);
+        server.httpCookiesEnabled(properties.getHttp().getCookies().isEnabled());
         properties.getTools().forEach((toolKey, toolProperties) -> server.tool(tool(toolKey, toolProperties)));
         return server.build();
     }

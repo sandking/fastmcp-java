@@ -6,6 +6,8 @@ FastMCP Java is being refocused into a Safe MCP Registration library for Java
 agent frameworks. Its primary goal is to register MCP raw tools safely so the
 LLM sees only model-facing virtual tools, while protected arguments are injected
 from server-side runtime context.
+The project boundary is not to build a complete FastMCP server/client framework;
+it is to provide safe MCP registration entry points across Java Agent frameworks.
 
 ```text
 MCP raw tools
@@ -29,25 +31,31 @@ Implemented now:
 - `fastmcp-safe-core`: framework-neutral safe tool mapping, protected argument
   injection, policy decisions, raw invoker abstraction, and audit events
 - `fastmcp-safe-config`: framework-neutral immutable configuration model for
-  MCP servers, virtual tools, argument mappings, and protected argument sources
+  MCP servers, HTTP connection settings, virtual tools, argument mappings, and
+  protected argument sources
+- `fastmcp-safe-spring-boot-autoconfigure-support`: Spring Boot binding support
+  for `fastmcp.safe.*`, shared by framework-specific Boot starters
 - AgentScope adapter module for safe virtual tools and Toolkit registration,
   backed by `fastmcp-safe-core`
+- AgentScope Boot starter that reuses the shared binding support, creates managed
+  AgentScope `McpClientWrapper`s from `fastmcp.safe.*` using `streamable-http`,
+  `sse`, or `stdio`, and registers only virtual tools into the application
+  `Toolkit`
 - Spring AI adapter module for safe virtual `ToolCallback`s, backed by
   `fastmcp-safe-core`
-- Spring AI Boot starter that binds `fastmcp.safe.*`, creates
-  `SafeMcpConfiguration`, and publishes a primary safe `ToolCallbackProvider`
-  from existing raw providers
+- Spring AI Boot starter that reuses the shared binding support, creates
+  managed Spring AI MCP clients from `fastmcp.safe.*` using `streamable-http`,
+  `sse`, or `stdio`, and publishes only the primary safe `ToolCallbackProvider`
 - Unit tests and GitHub Actions CI
 
 Not implemented yet:
 
-- Automatic MCP client creation from FastMCP-owned configuration
-- AgentScope Spring Boot auto-configuration
-- MCP HTTP or SSE transport endpoint
+- FastMCP-owned MCP server implementation
+- End-to-end validation for AG-UI SSE stream and the tool event chain
 - Resources and prompts
 - Plain classpath package scanning outside Spring
-- Client implementation
-- Authentication, lifecycle, and production middleware
+- Authentication, custom headers, OAuth, secret handling, and production
+- Full authentication flows, OAuth, secret handling, and production middleware
 - Protocol conformance tests
 
 ## Safe core
@@ -68,8 +76,10 @@ reimplementing it.
 ## Safe config
 
 Use `fastmcp-safe-config` when application configuration should be owned by this
-library instead of by AgentScope or Spring AI directly. It describes MCP servers
-and safe virtual tool mappings, but it does not create MCP clients yet.
+library instead of by AgentScope or Spring AI directly. It describes MCP server
+connection settings and safe virtual tool mappings. The config module itself is
+framework-neutral and does not create MCP clients; framework starters such as
+`fastmcp-agentscope-boot-starter` and `fastmcp-spring-ai-boot-starter` consume it.
 
 ```java
 SafeMcpToolConfiguration getMyOrders = SafeMcpToolConfiguration.builder("getOrdersByUserId")
@@ -105,9 +115,16 @@ Spring AI Boot applications can bind the same idea through
 ```
 
 ```properties
-fastmcp.safe.servers.orders.transport=stdio
-fastmcp.safe.servers.orders.command=node
-fastmcp.safe.servers.orders.arguments[0]=orders-mcp.js
+fastmcp.safe.servers.orders.transport=streamable-http
+fastmcp.safe.servers.orders.endpoint=https://mcp.example.test/mcp
+fastmcp.safe.servers.orders.request-timeout=3s
+fastmcp.safe.servers.orders.initialization-timeout=5s
+fastmcp.safe.servers.orders.client-name=fastmcp-orders
+fastmcp.safe.servers.orders.client-version=0.1.0
+fastmcp.safe.servers.orders.http.cookies.enabled=true
+fastmcp.safe.servers.orders.http.headers.X-App-Id=orders-agent
+fastmcp.safe.servers.orders.http.headers.Authorization=Bearer ${ORDERS_MCP_TOKEN}
+fastmcp.safe.servers.orders.http.query-params.region=cn
 fastmcp.safe.servers.orders.tools.getOrdersByUserId.name=get_my_orders
 fastmcp.safe.servers.orders.tools.getOrdersByUserId.description=Get orders for the authenticated user.
 fastmcp.safe.servers.orders.tools.getOrdersByUserId.input-schema.type=object
@@ -118,6 +135,12 @@ fastmcp.safe.servers.orders.tools.getOrdersByUserId.injected-arguments.userId=cu
 fastmcp.safe.servers.orders.tools.getOrdersByUserId.read-only=true
 ```
 
+HTTP headers, query params, and cookie settings are applied only to the managed
+MCP HTTP client created by the boot starters. They are not included in virtual
+tool names, descriptions, schemas, or arguments. Sensitive values should use
+normal Spring Boot placeholders or deployment-time configuration; FastMCP does
+not manage secret lifecycles or provide a secret resolver.
+
 Declare a resolver bean whose name matches the configured source name:
 
 ```java
@@ -127,9 +150,64 @@ SpringAiToolArgumentResolver currentUserId() {
 }
 ```
 
-The starter currently wraps existing raw Spring AI `ToolCallbackProvider` beans
-and publishes a primary safe provider named `fastMcpSafeToolCallbackProvider`.
-It does not create MCP clients yet.
+For SSE transport, use `transport=sse`, set the base `endpoint`, and optionally
+override `sse-endpoint` if the server does not use `/sse`:
+
+```properties
+fastmcp.safe.servers.orders.transport=sse
+fastmcp.safe.servers.orders.endpoint=https://mcp.example.test
+fastmcp.safe.servers.orders.sse-endpoint=/events
+```
+
+`stdio` remains supported for compatibility, but server-side Spring Boot
+deployments should normally prefer `streamable-http` or `sse`.
+
+The starter creates managed Spring AI `McpSyncClient`s, initializes them, turns
+their raw MCP tools into internal raw callbacks, wraps them with the configured
+safe mappings, and publishes a primary safe provider named
+`fastMcpSafeToolCallbackProvider`. The managed raw provider is not published as a
+Spring bean. Existing external raw Spring AI `ToolCallbackProvider` beans are
+still supported for compatibility, but application code should inject and pass
+the safe provider to the model.
+
+For an external raw-provider compatibility path, set
+`fastmcp.safe.servers.<server>.enabled=false` to skip managed client creation
+while still using the configured tool mappings to wrap the external provider.
+
+AgentScope Boot applications can use the same `fastmcp.safe.*` configuration by
+adding `fastmcp-agentscope-boot-starter` and providing a `Toolkit` bean. The
+starter uses AgentScope Java's own `McpClientBuilder` to create internal managed
+`McpClientWrapper`s, then registers only mapped virtual tools into that `Toolkit`;
+the raw wrappers are not published as Spring beans.
+
+```xml
+<dependency>
+    <groupId>io.github.sandking</groupId>
+    <artifactId>fastmcp-agentscope-boot-starter</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+</dependency>
+```
+
+```java
+@Bean
+Toolkit toolkit() {
+    return new Toolkit();
+}
+
+@Bean("currentUserId")
+ToolArgumentResolver currentUserId() {
+    return param -> param.getRuntimeContext().get(UserContext.class).userId();
+}
+```
+
+If the application also uses the official AgentScope Spring Boot starter, the
+`Toolkit` can be provided by AgentScope or by application code. This library does
+not create AgentScope agents or models.
+
+The reusable Spring Boot binding code lives in
+`fastmcp-safe-spring-boot-autoconfigure-support`. It owns
+`FastMcpSafeProperties` and `FastMcpSafeConfigurationFactory`, but it is not a
+standalone Agent framework starter and does not create MCP clients by itself.
 
 ## Build
 
@@ -137,12 +215,16 @@ It does not create MCP clients yet.
 mvn test
 ```
 
-The default reactor includes the safe core, shared config, AgentScope adapter,
-Spring AI adapter, and Spring AI Boot starter. Run it with JDK 17:
+The default reactor includes the safe core, shared config, shared Spring Boot
+binding support, AgentScope adapter, AgentScope Boot starter, Spring AI adapter,
+and Spring AI Boot starter. Run it with JDK 17:
 
 ```bash
 mvn test
 ```
+
+Public tests use local fake MCP servers only. Do not commit real company domains,
+real MCP endpoints, or real business tool names to this repository.
 
 ## AgentScope adapter
 
@@ -207,15 +289,21 @@ tools into the supplied `Toolkit`. The mapping raw name may be the MCP
 `tools/list` name, or the AgentScope-style namespaced form
 `mcp__<clientName>__<toolName>`.
 
+For Spring Boot with AgentScope, `fastmcp-agentscope-boot-starter` can bind the
+same mapping through `fastmcp.safe.*`, create managed `McpClientWrapper`s for
+`streamable-http`, `sse`, or `stdio`, and register virtual tools into the
+application `Toolkit`.
+
 ## Spring AI adapter
 
 The Spring AI adapter targets Spring AI `2.0.0` and wraps existing raw
 `ToolCallback`s or `ToolCallbackProvider`s into model-facing safe virtual
 callbacks.
 
-The adapter does not create MCP clients from configuration yet. Build the MCP
-client/provider using Spring AI or your application wiring, then wrap the raw
-callbacks before giving them to the model:
+The adapter module alone does not create MCP clients from configuration. If you
+are not using the Boot starter, build the MCP client/provider using Spring AI or
+your application wiring, then wrap the raw callbacks before giving them to the
+model:
 
 ```java
 ToolCallbackProvider rawProvider = springAiMcpToolCallbacks();
@@ -235,11 +323,27 @@ safe-core layer rejects the call. The raw callback receives `userId` from
 Spring AI `ToolContext`.
 
 If you use Spring Boot with Spring AI, `fastmcp-spring-ai-boot-starter` can bind
-the same mapping through `fastmcp.safe.*` and publish a primary safe
-`ToolCallbackProvider`. It still expects raw providers to exist; automatic MCP
-client creation is a later phase.
+the same mapping through `fastmcp.safe.*`, create managed MCP clients for
+`streamable-http`, `sse`, or `stdio`, and publish a primary safe
+`ToolCallbackProvider`. The `fastmcp.safe.*` binding is delegated to the shared
+Spring Boot support module.
 
-Run the example with:
+The `examples` profile contains runnable checks for the three current
+integration paths:
+
+- `examples/agentscope-adapter`: registers a virtual AgentScope tool into a
+  `Toolkit`, maps `status -> orderStatus`, injects `userId` and `tenantId` from
+  `RuntimeContext`, and rejects model-supplied protected arguments.
+- `examples/spring-ai-adapter`: wraps an existing raw Spring AI
+  `ToolCallbackProvider` as a safe provider and injects protected arguments from
+  `ToolContext`.
+- `examples/spring-ai-boot-starter`: binds `fastmcp.safe.*`, declares resolver
+  beans such as `currentUserId`, and verifies that the starter publishes the
+  primary `fastMcpSafeToolCallbackProvider` from an existing raw provider. The
+  managed MCP client path is covered by starter unit tests until a real MCP
+  server example is added.
+
+Run all examples with:
 
 ```bash
 mvn -Pexamples test
@@ -268,11 +372,22 @@ fastmcp-safe-config
     SafeMcpToolConfiguration   safe virtual tool mapping configuration
     SafeMcpConfigException     validation error with stable code
 
+fastmcp-safe-spring-boot-autoconfigure-support
+  io.github.sandking.fastmcp.safe.boot
+    FastMcpSafeProperties        fastmcp.safe.* configuration properties
+    FastMcpSafeConfigurationFactory properties-to-safe-config converter
+
 fastmcp-agentscope-adapter
   io.github.sandking.fastmcp.agentscope
     FastMcpAgentScopeTools    registers safe virtual tools into AgentScope Toolkit
     FastMcpToolMapping        virtual-to-raw tool and argument mapping
     ToolArgumentResolver      resolves injected protected arguments
+
+fastmcp-agentscope-boot-starter
+  io.github.sandking.fastmcp.agentscope.boot
+    FastMcpAgentScopeSafeAutoConfiguration Spring Boot auto-configuration
+    FastMcpAgentScopeManagedClientFactory creates managed AgentScope MCP clients
+    FastMcpAgentScopeSafeRegistrar registers virtual tools into Toolkit
 
 fastmcp-spring-ai-adapter
   io.github.sandking.fastmcp.springai
@@ -283,12 +398,20 @@ fastmcp-spring-ai-adapter
 fastmcp-spring-ai-boot-starter
   io.github.sandking.fastmcp.springai.boot
     FastMcpSafeAutoConfiguration Spring Boot auto-configuration
-    FastMcpSafeProperties        fastmcp.safe.* configuration properties
-    FastMcpSafeConfigurationFactory properties-to-safe-config converter
+    FastMcpSpringAiManagedClientFactory creates managed Spring AI MCP clients
+    FastMcpManagedSpringAiToolCallbackProvider closes managed clients
 
 examples/agentscope-adapter
   io.github.sandking.fastmcp.examples.agentscope
-    FastMcpAgentScopeExample  minimal runnable example class
+    FastMcpAgentScopeExample  Toolkit registration and RuntimeContext injection
+
+examples/spring-ai-adapter
+  io.github.sandking.fastmcp.examples.springai
+    FastMcpSpringAiExample    ToolCallbackProvider wrapping and ToolContext injection
+
+examples/spring-ai-boot-starter
+  io.github.sandking.fastmcp.examples.springai.boot
+    FastMcpSpringAiBootExample fastmcp.safe.* binding and resolver beans
 ```
 
 ## Relationship to FastMCP Python

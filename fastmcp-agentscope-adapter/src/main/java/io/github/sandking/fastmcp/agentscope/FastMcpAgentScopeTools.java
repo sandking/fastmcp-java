@@ -58,7 +58,7 @@ public final class FastMcpAgentScopeTools {
         Objects.requireNonNull(mappings, "mappings must not be null");
 
         return client.initialize()
-                .then(client.listTools())
+                .then(Mono.defer(client::listTools))
                 .doOnNext(tools -> registerMappedMcpTools(toolkit, client, tools, mappings))
                 .then();
     }

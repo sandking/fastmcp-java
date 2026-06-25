@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import java.time.Duration;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 
@@ -30,6 +31,8 @@ class SafeMcpConfigurationTest {
                 .command("node")
                 .argument("orders-mcp.js")
                 .environment("ORDERS_ENV", "test")
+                .httpHeader("X-App-Id", "orders-agent")
+                .httpQueryParam("region", "cn")
                 .tool(tool)
                 .build();
         SafeMcpConfiguration configuration = SafeMcpConfiguration.builder()
@@ -41,6 +44,8 @@ class SafeMcpConfigurationTest {
         assertEquals("node", configuration.server("orders").command());
         assertEquals("orders-mcp.js", configuration.server("orders").arguments().get(0));
         assertEquals("test", configuration.server("orders").environment().get("ORDERS_ENV"));
+        assertEquals("orders-agent", configuration.server("orders").httpHeaders().get("X-App-Id"));
+        assertEquals("cn", configuration.server("orders").httpQueryParams().get("region"));
         assertEquals("get_my_orders", configuration.server("orders").tool("getOrdersByUserId").name());
         assertEquals(Map.of("status", "orderStatus"), tool.argumentMappings());
         assertEquals(Map.of("userId", "currentUserId"), tool.injectedArguments());
@@ -51,6 +56,10 @@ class SafeMcpConfigurationTest {
                 () -> configuration.servers().put("other", server));
         assertThrows(UnsupportedOperationException.class,
                 () -> server.tools().put("other", tool));
+        assertThrows(UnsupportedOperationException.class,
+                () -> server.httpHeaders().put("Authorization", "Bearer token"));
+        assertThrows(UnsupportedOperationException.class,
+                () -> server.httpQueryParams().put("tenant", "internal"));
         assertThrows(UnsupportedOperationException.class,
                 () -> tool.injectedArguments().put("tenantId", "currentTenantId"));
     }
@@ -107,6 +116,37 @@ class SafeMcpConfigurationTest {
                         .inputSchema(virtualOrderSchema())
                         .injectArgument("userId", " ")
                         .build());
+    }
+
+    @Test
+    void storesManagedClientConnectionSettings() {
+        SafeMcpServerConfiguration server = SafeMcpServerConfiguration.builder("orders")
+                .enabled(false)
+                .transport("streamable-http")
+                .endpoint("https://mcp.example.test/mcp")
+                .sseEndpoint("/events")
+                .requestTimeout(Duration.ofSeconds(3))
+                .initializationTimeout(Duration.ofSeconds(5))
+                .clientName("fastmcp-orders")
+                .clientVersion("0.1-test")
+                .httpCookiesEnabled(false)
+                .httpHeader("Authorization", "Bearer test-token")
+                .httpQueryParam("region", "cn")
+                .build();
+
+        assertFalse(server.enabled());
+        assertEquals("streamable-http", server.transport());
+        assertEquals("https://mcp.example.test/mcp", server.endpoint());
+        assertEquals("/events", server.sseEndpoint());
+        assertTrue(server.requestTimeout().isPresent());
+        assertEquals(Duration.ofSeconds(3), server.requestTimeout().get());
+        assertTrue(server.initializationTimeout().isPresent());
+        assertEquals(Duration.ofSeconds(5), server.initializationTimeout().get());
+        assertEquals("fastmcp-orders", server.clientName());
+        assertEquals("0.1-test", server.clientVersion());
+        assertFalse(server.httpCookiesEnabled());
+        assertEquals("Bearer test-token", server.httpHeaders().get("Authorization"));
+        assertEquals("cn", server.httpQueryParams().get("region"));
     }
 
     private static SafeMcpToolConfiguration currentUserOrdersTool() {

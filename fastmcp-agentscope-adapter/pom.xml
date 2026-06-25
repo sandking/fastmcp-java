@@ -19,7 +19,6 @@
 
     <properties>
         <maven.compiler.release>17</maven.compiler.release>
-        <agentscope.version>2.0.0-RC3</agentscope.version>
     </properties>
 
     <dependencies>
