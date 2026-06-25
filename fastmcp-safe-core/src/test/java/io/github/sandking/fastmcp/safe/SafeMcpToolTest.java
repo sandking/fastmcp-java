@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -89,6 +90,31 @@ class SafeMcpToolTest {
     }
 
     @Test
+    void rejectsInputSchemaThatExposesInjectedRawArgument() {
+        SafeMcpException exception = assertThrows(SafeMcpException.class,
+                () -> SafeMcpToolSpec.builder("orders", "getOrdersByUserId")
+                        .name("get_my_orders")
+                        .inputSchema(schemaWithProperty("userId"))
+                        .injectArgument("userId", SafeToolCallContext::userId)
+                        .build());
+
+        assertEquals("PROTECTED_ARGUMENT_IN_SCHEMA", exception.code());
+    }
+
+    @Test
+    void rejectsInputSchemaThatExposesInjectedVirtualArgument() {
+        SafeMcpException exception = assertThrows(SafeMcpException.class,
+                () -> SafeMcpToolSpec.builder("orders", "getOrdersByUserId")
+                        .name("get_my_orders")
+                        .inputSchema(schemaWithProperty("currentUser"))
+                        .mapArgument("currentUser", "userId")
+                        .injectArgument("userId", SafeToolCallContext::userId)
+                        .build());
+
+        assertEquals("PROTECTED_ARGUMENT_IN_SCHEMA", exception.code());
+    }
+
+    @Test
     void doesNotCallRawToolWhenPolicyDenies() {
         AtomicBoolean rawCalled = new AtomicBoolean(false);
         List<SafeAuditEvent> auditEvents = new ArrayList<>();
@@ -151,6 +177,15 @@ class SafeMcpToolTest {
                 .injectArgument("tenantId", SafeToolCallContext::tenantId)
                 .readOnly(true)
                 .build();
+    }
+
+    private static ObjectNode schemaWithProperty(String propertyName) {
+        ObjectNode schema = JsonNodeFactory.instance.objectNode();
+        schema.put("type", "object");
+        ObjectNode properties = JsonNodeFactory.instance.objectNode();
+        properties.set(propertyName, JsonNodeFactory.instance.objectNode().put("type", "string"));
+        schema.set("properties", properties);
+        return schema;
     }
 
     private static final class SetSupport {

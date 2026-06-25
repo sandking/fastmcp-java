@@ -26,6 +26,8 @@ public final class SafeMcpToolConfiguration {
         this.inputSchema = builder.inputSchema.deepCopy();
         this.argumentMappings = Collections.unmodifiableMap(new LinkedHashMap<>(builder.argumentMappings));
         this.injectedArguments = Collections.unmodifiableMap(new LinkedHashMap<>(builder.injectedArguments));
+        SafeMcpInputSchemaGuard.rejectProtectedArguments(this.inputSchema, this.argumentMappings,
+                this.injectedArguments.keySet());
         this.readOnly = builder.readOnly;
         this.concurrencySafe = builder.concurrencySafe;
     }

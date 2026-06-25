@@ -119,6 +119,25 @@ class SafeMcpConfigurationTest {
     }
 
     @Test
+    void rejectsInputSchemaThatExposesInjectedArgument() {
+        assertConfigError("PROTECTED_ARGUMENT_IN_SCHEMA",
+                () -> SafeMcpToolConfiguration.builder("getOrdersByUserId")
+                        .name("get_my_orders")
+                        .description("Get orders for the authenticated user.")
+                        .inputSchema(schemaWithProperty("userId"))
+                        .injectArgument("userId", "currentUserId")
+                        .build());
+        assertConfigError("PROTECTED_ARGUMENT_IN_SCHEMA",
+                () -> SafeMcpToolConfiguration.builder("getOrdersByUserId")
+                        .name("get_my_orders")
+                        .description("Get orders for the authenticated user.")
+                        .inputSchema(schemaWithProperty("currentUser"))
+                        .mapArgument("currentUser", "userId")
+                        .injectArgument("userId", "currentUserId")
+                        .build());
+    }
+
+    @Test
     void storesManagedClientConnectionSettings() {
         SafeMcpServerConfiguration server = SafeMcpServerConfiguration.builder("orders")
                 .enabled(false)
@@ -165,6 +184,15 @@ class SafeMcpConfigurationTest {
         properties.set("status", JsonNodeFactory.instance.objectNode().put("type", "string"));
         schema.set("properties", properties);
         schema.putArray("required").add("status");
+        return schema;
+    }
+
+    private static ObjectNode schemaWithProperty(String propertyName) {
+        ObjectNode schema = JsonNodeFactory.instance.objectNode();
+        schema.put("type", "object");
+        ObjectNode properties = JsonNodeFactory.instance.objectNode();
+        properties.set(propertyName, JsonNodeFactory.instance.objectNode().put("type", "string"));
+        schema.set("properties", properties);
         return schema;
     }
 

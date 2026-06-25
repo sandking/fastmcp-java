@@ -25,6 +25,8 @@ public final class SafeMcpToolSpec {
         this.rawToolName = SafeMcpException.requireText(builder.rawToolName, "rawToolName");
         this.argumentMappings = Collections.unmodifiableMap(new LinkedHashMap<>(builder.argumentMappings));
         this.injectedArguments = Collections.unmodifiableMap(new LinkedHashMap<>(builder.injectedArguments));
+        SafeInputSchemaGuard.rejectProtectedArguments(this.inputSchema, this.argumentMappings,
+                this.injectedArguments.keySet());
         this.readOnly = builder.readOnly;
         this.concurrencySafe = builder.concurrencySafe;
         this.policyId = builder.policyId == null ? "allow" : builder.policyId;
