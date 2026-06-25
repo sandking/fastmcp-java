@@ -8,6 +8,7 @@ import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import io.github.sandking.fastmcp.safe.config.SafeMcpConfiguration;
 import io.github.sandking.fastmcp.safe.config.SafeMcpServerConfiguration;
+import io.github.sandking.fastmcp.safe.config.SafeMcpToolConfiguration;
 import io.modelcontextprotocol.client.McpSyncClient;
 import io.modelcontextprotocol.spec.McpSchema;
 import java.io.IOException;
@@ -42,11 +43,12 @@ class FastMcpStreamableHttpTransportIntegrationTest {
                             .endpoint(endpoint)
                             .httpHeader("Authorization", "Bearer test-token")
                             .httpQueryParam("region", "cn")
+                            .tool(listCatalogItemsTool())
                             .build())
                     .build();
 
             FastMcpSpringAiManagedClientFactory factory = new FastMcpSpringAiManagedClientFactory();
-            client = factory.createClients(configuration).get(0);
+            client = factory.createClients(configuration).get(0).client();
             McpSchema.ListToolsResult result = client.listTools();
 
             assertThat(result.tools()).extracting(McpSchema.Tool::name).containsExactly("listCatalogItems");
@@ -61,6 +63,18 @@ class FastMcpStreamableHttpTransportIntegrationTest {
             }
             server.stop(0);
         }
+    }
+
+    private static SafeMcpToolConfiguration listCatalogItemsTool() {
+        com.fasterxml.jackson.databind.node.ObjectNode schema = OBJECT_MAPPER.createObjectNode();
+        schema.put("type", "object");
+        schema.set("properties", OBJECT_MAPPER.createObjectNode());
+        schema.putArray("required");
+        return SafeMcpToolConfiguration.builder("listCatalogItems")
+                .name("list_catalog_items")
+                .description("List catalog items.")
+                .inputSchema(schema)
+                .build();
     }
 
     private static void handleMcp(HttpExchange exchange, AtomicInteger getRequests,

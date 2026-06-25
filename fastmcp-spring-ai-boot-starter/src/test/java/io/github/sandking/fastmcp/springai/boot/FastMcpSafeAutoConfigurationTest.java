@@ -10,6 +10,7 @@ import io.github.sandking.fastmcp.safe.config.SafeMcpConfiguration;
 import io.github.sandking.fastmcp.safe.config.SafeMcpToolConfiguration;
 import io.github.sandking.fastmcp.springai.SpringAiToolArgumentResolver;
 import io.modelcontextprotocol.client.McpSyncClient;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
@@ -111,6 +112,33 @@ class FastMcpSafeAutoConfigurationTest {
     }
 
     @Test
+    void scopesManagedRawProvidersByServerWhenRawToolNamesCollide() {
+        new ApplicationContextRunner()
+                .withConfiguration(AutoConfigurations.of(FastMcpSafeAutoConfiguration.class))
+                .withUserConfiguration(MultiManagedClientConfiguration.class)
+                .withPropertyValues(safeOrderAndCatalogProperties())
+                .run(context -> {
+                    assertThat(context).hasBean("fastMcpSafeToolCallbackProvider");
+
+                    ToolCallbackProvider safeProvider = context.getBean("fastMcpSafeToolCallbackProvider",
+                            ToolCallbackProvider.class);
+                    ToolCallback ordersTool = toolByName(safeProvider.getToolCallbacks(), "get_my_orders");
+                    ToolCallback catalogTool = toolByName(safeProvider.getToolCallbacks(), "get_catalog_orders");
+
+                    ordersTool.call("{\"status\":\"PAID\"}", new ToolContext(Map.of("userId", "orders-user")));
+                    catalogTool.call("{\"status\":\"OPEN\"}", new ToolContext(Map.of("userId", "catalog-user")));
+
+                    MultiManagedClientFactory factory = context.getBean(MultiManagedClientFactory.class);
+                    assertThat(factory.ordersRawTool().lastInput())
+                            .containsEntry("orderStatus", "PAID")
+                            .containsEntry("userId", "orders-user");
+                    assertThat(factory.catalogRawTool().lastInput())
+                            .containsEntry("orderStatus", "OPEN")
+                            .containsEntry("userId", "catalog-user");
+                });
+    }
+
+    @Test
     void closesManagedClientsWhenSafeProviderCreationFails() {
         McpSyncClient managedClient = mock(McpSyncClient.class);
         FAILING_MANAGED_CLIENT.set(managedClient);
@@ -163,6 +191,36 @@ class FastMcpSafeAutoConfigurationTest {
         };
     }
 
+    private static String[] safeOrderAndCatalogProperties() {
+        return new String[] {
+                "fastmcp.safe.servers.orders.transport=streamable-http",
+                "fastmcp.safe.servers.orders.endpoint=https://mcp.example.test/orders/mcp",
+                "fastmcp.safe.servers.orders.tools.getOrdersByUserId.name=get_my_orders",
+                "fastmcp.safe.servers.orders.tools.getOrdersByUserId.description=Get orders for the authenticated user.",
+                "fastmcp.safe.servers.orders.tools.getOrdersByUserId.input-schema.type=object",
+                "fastmcp.safe.servers.orders.tools.getOrdersByUserId.input-schema.properties.status.type=string",
+                "fastmcp.safe.servers.orders.tools.getOrdersByUserId.input-schema.required[0]=status",
+                "fastmcp.safe.servers.orders.tools.getOrdersByUserId.argument-mappings.status=orderStatus",
+                "fastmcp.safe.servers.orders.tools.getOrdersByUserId.injected-arguments.userId=currentUserId",
+                "fastmcp.safe.servers.catalog.transport=streamable-http",
+                "fastmcp.safe.servers.catalog.endpoint=https://mcp.example.test/catalog/mcp",
+                "fastmcp.safe.servers.catalog.tools.getOrdersByUserId.name=get_catalog_orders",
+                "fastmcp.safe.servers.catalog.tools.getOrdersByUserId.description=Get catalog orders for the authenticated user.",
+                "fastmcp.safe.servers.catalog.tools.getOrdersByUserId.input-schema.type=object",
+                "fastmcp.safe.servers.catalog.tools.getOrdersByUserId.input-schema.properties.status.type=string",
+                "fastmcp.safe.servers.catalog.tools.getOrdersByUserId.input-schema.required[0]=status",
+                "fastmcp.safe.servers.catalog.tools.getOrdersByUserId.argument-mappings.status=orderStatus",
+                "fastmcp.safe.servers.catalog.tools.getOrdersByUserId.injected-arguments.userId=currentUserId"
+        };
+    }
+
+    private static ToolCallback toolByName(ToolCallback[] callbacks, String name) {
+        return Arrays.stream(callbacks)
+                .filter(callback -> callback.getToolDefinition().name().equals(name))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("Tool not found: " + name));
+    }
+
     @Configuration(proxyBeanMethods = false)
     static class RawToolConfiguration {
         @Bean
@@ -209,7 +267,10 @@ class FastMcpSafeAutoConfigurationTest {
         @Bean
         FastMcpSpringAiManagedClientFactory fastMcpSpringAiManagedClientFactory(
                 CapturingToolCallback managedRawOrderTool) {
-            return new TestManagedClientFactory(ToolCallbackProvider.from(managedRawOrderTool));
+            return new TestManagedClientFactory(
+                    List.of(new FastMcpSpringAiManagedClientFactory.ManagedMcpClient("orders",
+                            mock(McpSyncClient.class))),
+                    ToolCallbackProvider.from(managedRawOrderTool));
         }
 
         @Bean("currentUserId")
@@ -226,21 +287,44 @@ class FastMcpSafeAutoConfigurationTest {
         }
     }
 
+    @Configuration(proxyBeanMethods = false)
+    static class MultiManagedClientConfiguration {
+        @Bean
+        MultiManagedClientFactory fastMcpSpringAiManagedClientFactory() {
+            return new MultiManagedClientFactory();
+        }
+
+        @Bean("currentUserId")
+        SpringAiToolArgumentResolver currentUserId() {
+            return context -> context.getContext().get("userId");
+        }
+    }
+
     static final class TestManagedClientFactory extends FastMcpSpringAiManagedClientFactory {
+        private final List<FastMcpSpringAiManagedClientFactory.ManagedMcpClient> managedClients;
         private final ToolCallbackProvider rawProvider;
 
         private TestManagedClientFactory(ToolCallbackProvider rawProvider) {
+            this(List.of(), rawProvider);
+        }
+
+        private TestManagedClientFactory(
+                List<FastMcpSpringAiManagedClientFactory.ManagedMcpClient> managedClients,
+                ToolCallbackProvider rawProvider) {
+            this.managedClients = managedClients;
             this.rawProvider = rawProvider;
         }
 
         @Override
-        List<McpSyncClient> createClients(SafeMcpConfiguration configuration) {
-            return List.of();
+        List<FastMcpSpringAiManagedClientFactory.ManagedMcpClient> createClients(SafeMcpConfiguration configuration) {
+            return managedClients;
         }
 
         @Override
         ToolCallbackProvider createRawProvider(List<McpSyncClient> clients) {
-            assertThat(clients).isEmpty();
+            assertThat(clients).containsExactlyElementsOf(managedClients.stream()
+                    .map(FastMcpSpringAiManagedClientFactory.ManagedMcpClient::client)
+                    .toList());
             return rawProvider;
         }
     }
@@ -253,13 +337,47 @@ class FastMcpSafeAutoConfigurationTest {
         }
 
         @Override
-        List<McpSyncClient> createClients(SafeMcpConfiguration configuration) {
-            return List.of(managedClient);
+        List<FastMcpSpringAiManagedClientFactory.ManagedMcpClient> createClients(SafeMcpConfiguration configuration) {
+            return List.of(new FastMcpSpringAiManagedClientFactory.ManagedMcpClient("orders", managedClient));
         }
 
         @Override
         ToolCallbackProvider createRawProvider(List<McpSyncClient> clients) {
             return ToolCallbackProvider.from(List.of());
+        }
+    }
+
+    static final class MultiManagedClientFactory extends FastMcpSpringAiManagedClientFactory {
+        private final McpSyncClient ordersClient = mock(McpSyncClient.class);
+        private final McpSyncClient catalogClient = mock(McpSyncClient.class);
+        private final CapturingToolCallback ordersRawTool = new CapturingToolCallback();
+        private final CapturingToolCallback catalogRawTool = new CapturingToolCallback();
+
+        @Override
+        List<FastMcpSpringAiManagedClientFactory.ManagedMcpClient> createClients(SafeMcpConfiguration configuration) {
+            return List.of(
+                    new FastMcpSpringAiManagedClientFactory.ManagedMcpClient("orders", ordersClient),
+                    new FastMcpSpringAiManagedClientFactory.ManagedMcpClient("catalog", catalogClient));
+        }
+
+        @Override
+        ToolCallbackProvider createRawProvider(List<McpSyncClient> clients) {
+            assertThat(clients).hasSize(1);
+            if (clients.get(0) == ordersClient) {
+                return ToolCallbackProvider.from(ordersRawTool);
+            }
+            if (clients.get(0) == catalogClient) {
+                return ToolCallbackProvider.from(catalogRawTool);
+            }
+            throw new AssertionError("Unexpected managed client: " + clients.get(0));
+        }
+
+        CapturingToolCallback ordersRawTool() {
+            return ordersRawTool;
+        }
+
+        CapturingToolCallback catalogRawTool() {
+            return catalogRawTool;
         }
     }
 

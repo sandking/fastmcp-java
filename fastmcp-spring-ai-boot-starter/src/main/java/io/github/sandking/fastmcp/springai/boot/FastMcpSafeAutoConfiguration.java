@@ -3,12 +3,14 @@ package io.github.sandking.fastmcp.springai.boot;
 import io.github.sandking.fastmcp.safe.boot.FastMcpSafeConfigurationFactory;
 import io.github.sandking.fastmcp.safe.boot.FastMcpSafeProperties;
 import io.github.sandking.fastmcp.safe.config.SafeMcpConfiguration;
+import io.github.sandking.fastmcp.safe.config.SafeMcpServerConfiguration;
 import io.github.sandking.fastmcp.springai.FastMcpSpringAiTools;
 import io.github.sandking.fastmcp.springai.SpringAiMcpToolMapping;
 import io.github.sandking.fastmcp.springai.SpringAiToolArgumentResolver;
 import io.modelcontextprotocol.client.McpSyncClient;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -48,20 +50,36 @@ public class FastMcpSafeAutoConfiguration {
             ListableBeanFactory beanFactory,
             FastMcpSpringAiManagedClientFactory managedClientFactory,
             Map<String, SpringAiToolArgumentResolver> resolvers) {
-        List<McpSyncClient> managedClients = managedClientFactory.createClients(configuration);
+        List<FastMcpSpringAiManagedClientFactory.ManagedMcpClient> managedClients =
+                managedClientFactory.createClients(configuration);
         try {
-            ToolCallbackProvider managedRawProvider = managedClientFactory.createRawProvider(managedClients);
-            List<ToolCallback> rawCallbacks = new ArrayList<>();
-            rawCallbacks.addAll(rawToolCallbackProviders(beanFactory).stream()
+            Map<String, ToolCallbackProvider> managedRawProviders = new LinkedHashMap<>();
+            for (FastMcpSpringAiManagedClientFactory.ManagedMcpClient managedClient : managedClients) {
+                managedRawProviders.put(managedClient.serverName(),
+                        managedClientFactory.createRawProvider(List.of(managedClient.client())));
+            }
+            List<ToolCallback> externalRawCallbacks = rawToolCallbackProviders(beanFactory).stream()
                     .flatMap(provider -> Arrays.stream(provider.getToolCallbacks()))
-                    .collect(Collectors.toList()));
-            rawCallbacks.addAll(Arrays.asList(managedRawProvider.getToolCallbacks()));
-            List<SpringAiMcpToolMapping> mappings = configuration.servers().values().stream()
-                    .flatMap(server -> server.tools().values().stream())
-                    .map(tool -> SpringAiMcpToolMapping.from(tool, resolvers))
                     .collect(Collectors.toList());
-            ToolCallbackProvider safeProvider = FastMcpSpringAiTools.wrap(rawCallbacks, mappings);
-            return new FastMcpManagedSpringAiToolCallbackProvider(managedClients, safeProvider);
+            List<ToolCallback> safeCallbacks = new ArrayList<>();
+            for (SafeMcpServerConfiguration server : configuration.servers().values()) {
+                if (!server.enabled() || server.tools().isEmpty()) {
+                    continue;
+                }
+                List<ToolCallback> rawCallbacks = managedRawProviders.containsKey(server.name())
+                        ? Arrays.asList(managedRawProviders.get(server.name()).getToolCallbacks())
+                        : externalRawCallbacks;
+                List<SpringAiMcpToolMapping> mappings = server.tools().values().stream()
+                        .map(tool -> SpringAiMcpToolMapping.from(server.name(), tool, resolvers))
+                        .collect(Collectors.toList());
+                safeCallbacks.addAll(Arrays.asList(
+                        FastMcpSpringAiTools.wrap(server.name(), rawCallbacks, mappings).getToolCallbacks()));
+            }
+            ToolCallbackProvider safeProvider = ToolCallbackProvider.from(safeCallbacks);
+            List<McpSyncClient> clients = managedClients.stream()
+                    .map(FastMcpSpringAiManagedClientFactory.ManagedMcpClient::client)
+                    .collect(Collectors.toList());
+            return new FastMcpManagedSpringAiToolCallbackProvider(clients, safeProvider);
         } catch (RuntimeException | Error exception) {
             closeManagedClients(managedClients, exception);
             throw exception;
@@ -79,10 +97,11 @@ public class FastMcpSafeAutoConfiguration {
         return providers;
     }
 
-    private void closeManagedClients(List<McpSyncClient> managedClients, Throwable failure) {
-        for (McpSyncClient managedClient : managedClients) {
+    private void closeManagedClients(List<FastMcpSpringAiManagedClientFactory.ManagedMcpClient> managedClients,
+            Throwable failure) {
+        for (FastMcpSpringAiManagedClientFactory.ManagedMcpClient managedClient : managedClients) {
             try {
-                managedClient.closeGracefully();
+                managedClient.client().closeGracefully();
             } catch (RuntimeException closeException) {
                 failure.addSuppressed(closeException);
             }

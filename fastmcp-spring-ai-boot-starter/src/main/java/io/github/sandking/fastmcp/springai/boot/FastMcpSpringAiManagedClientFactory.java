@@ -28,6 +28,9 @@ import org.springframework.ai.mcp.SyncMcpToolCallbackProvider;
 import org.springframework.ai.tool.ToolCallbackProvider;
 
 class FastMcpSpringAiManagedClientFactory {
+    record ManagedMcpClient(String serverName, McpSyncClient client) {
+    }
+
     record ManagedClientSpec(String clientName, String clientVersion, Optional<Duration> requestTimeout,
             Optional<Duration> initializationTimeout) {
     }
@@ -52,15 +55,15 @@ class FastMcpSpringAiManagedClientFactory {
         this.transportFactory = transportFactory;
     }
 
-    List<McpSyncClient> createClients(SafeMcpConfiguration configuration) {
-        List<McpSyncClient> clients = new ArrayList<>();
+    List<ManagedMcpClient> createClients(SafeMcpConfiguration configuration) {
+        List<ManagedMcpClient> clients = new ArrayList<>();
         for (SafeMcpServerConfiguration server : configuration.servers().values()) {
-            if (!server.enabled()) {
+            if (!requiresManagedClient(server)) {
                 continue;
             }
             McpSyncClient client = buildClient(server);
             initialize(client);
-            clients.add(client);
+            clients.add(new ManagedMcpClient(server.name(), client));
         }
         return clients;
     }
@@ -82,6 +85,10 @@ class FastMcpSpringAiManagedClientFactory {
 
     ToolCallbackProvider createRawProvider(List<McpSyncClient> clients) {
         return new SyncMcpToolCallbackProvider(clients);
+    }
+
+    static boolean requiresManagedClient(SafeMcpServerConfiguration server) {
+        return server.enabled() && !server.tools().isEmpty() && !server.transport().isBlank();
     }
 
     static ManagedClientSpec managedClientSpec(SafeMcpServerConfiguration server) {

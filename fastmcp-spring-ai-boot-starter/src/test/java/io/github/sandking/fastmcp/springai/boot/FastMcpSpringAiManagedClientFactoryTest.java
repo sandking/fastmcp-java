@@ -3,8 +3,11 @@ package io.github.sandking.fastmcp.springai.boot;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.fasterxml.jackson.databind.node.JsonNodeFactory;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.github.sandking.fastmcp.safe.config.SafeMcpConfiguration;
 import io.github.sandking.fastmcp.safe.config.SafeMcpServerConfiguration;
+import io.github.sandking.fastmcp.safe.config.SafeMcpToolConfiguration;
 import io.modelcontextprotocol.client.McpSyncClient;
 import io.modelcontextprotocol.client.transport.HttpClientSseClientTransport;
 import io.modelcontextprotocol.client.transport.HttpClientStreamableHttpTransport;
@@ -37,7 +40,44 @@ class FastMcpSpringAiManagedClientFactoryTest {
                     throw new AssertionError("disabled server must not create transport");
                 });
 
-        List<McpSyncClient> clients = factory.createClients(configuration);
+        List<FastMcpSpringAiManagedClientFactory.ManagedMcpClient> clients = factory.createClients(configuration);
+
+        assertThat(clients).isEmpty();
+    }
+
+    @Test
+    void skipsServersWithoutConfiguredTools() {
+        SafeMcpConfiguration configuration = SafeMcpConfiguration.builder()
+                .server(SafeMcpServerConfiguration.builder("orders")
+                        .transport("streamable-http")
+                        .endpoint("https://mcp.example.test/mcp")
+                        .build())
+                .build();
+
+        FastMcpSpringAiManagedClientFactory factory = new FastMcpSpringAiManagedClientFactory(
+                server -> {
+                    throw new AssertionError("server without tools must not create transport");
+                });
+
+        List<FastMcpSpringAiManagedClientFactory.ManagedMcpClient> clients = factory.createClients(configuration);
+
+        assertThat(clients).isEmpty();
+    }
+
+    @Test
+    void skipsServersWithoutConfiguredTransport() {
+        SafeMcpConfiguration configuration = SafeMcpConfiguration.builder()
+                .server(SafeMcpServerConfiguration.builder("orders")
+                        .tool(currentUserOrdersTool())
+                        .build())
+                .build();
+
+        FastMcpSpringAiManagedClientFactory factory = new FastMcpSpringAiManagedClientFactory(
+                server -> {
+                    throw new AssertionError("server without transport must not create transport");
+                });
+
+        List<FastMcpSpringAiManagedClientFactory.ManagedMcpClient> clients = factory.createClients(configuration);
 
         assertThat(clients).isEmpty();
     }
@@ -47,6 +87,7 @@ class FastMcpSpringAiManagedClientFactoryTest {
         SafeMcpConfiguration configuration = SafeMcpConfiguration.builder()
                 .server(SafeMcpServerConfiguration.builder("orders")
                         .transport("websocket")
+                        .tool(currentUserOrdersTool())
                         .build())
                 .build();
 
@@ -156,16 +197,37 @@ class FastMcpSpringAiManagedClientFactoryTest {
                         .endpoint("https://mcp.example.test/mcp")
                         .clientName("fastmcp-orders")
                         .clientVersion("0.1-test")
+                        .tool(currentUserOrdersTool())
                         .build())
                 .build();
         FastMcpSpringAiManagedClientFactory factory =
                 new NonInitializingFactory(server -> new NoopMcpClientTransport());
 
-        List<McpSyncClient> clients = factory.createClients(configuration);
+        List<FastMcpSpringAiManagedClientFactory.ManagedMcpClient> clients = factory.createClients(configuration);
 
         assertThat(clients).hasSize(1);
-        assertThat(clients.get(0).getClientInfo().name()).isEqualTo("fastmcp-orders");
-        assertThat(clients.get(0).getClientInfo().version()).isEqualTo("0.1-test");
+        assertThat(clients.get(0).serverName()).isEqualTo("orders");
+        assertThat(clients.get(0).client().getClientInfo().name()).isEqualTo("fastmcp-orders");
+        assertThat(clients.get(0).client().getClientInfo().version()).isEqualTo("0.1-test");
+    }
+
+    private static SafeMcpToolConfiguration currentUserOrdersTool() {
+        return SafeMcpToolConfiguration.builder("getOrdersByUserId")
+                .name("get_my_orders")
+                .description("Get orders for the authenticated user.")
+                .inputSchema(virtualOrderSchema())
+                .injectArgument("userId", "currentUserId")
+                .build();
+    }
+
+    private static ObjectNode virtualOrderSchema() {
+        ObjectNode schema = JsonNodeFactory.instance.objectNode();
+        schema.put("type", "object");
+        ObjectNode properties = JsonNodeFactory.instance.objectNode();
+        properties.set("status", JsonNodeFactory.instance.objectNode().put("type", "string"));
+        schema.set("properties", properties);
+        schema.putArray("required").add("status");
+        return schema;
     }
 
     private static final class NonInitializingFactory extends FastMcpSpringAiManagedClientFactory {
