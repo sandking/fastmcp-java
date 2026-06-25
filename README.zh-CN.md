@@ -2,46 +2,43 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-FastMCP Java is an experimental Java foundation for building Model Context Protocol
-(MCP) servers in the FastMCP style.
+FastMCP Java 是一个实验性的 Java 基础库，用于以 FastMCP 风格构建
+Model Context Protocol (MCP) server。
 
-The upstream Python project focuses on letting developers declare tools, resources,
-and prompts while the framework handles schema, validation, transports, and MCP
-lifecycle details. This repository starts the Java port from the smallest useful
-server core: register tools, list tools, call tools in memory, and wire those
-tools into Spring Boot applications.
+上游 Python 项目侧重让开发者声明 tools、resources 和 prompts，由框架处理
+schema、validation、transport 和 MCP lifecycle 细节。本仓库从最小可用的
+Java server core 开始：注册工具、列出工具、在内存中调用工具，并把这些工具接入
+Spring Boot 应用。
 
-The AgentScope adapter adds the FastMCP-specific safety layer: expose a
-model-facing virtual tool, transform its arguments, inject protected arguments
-from server-side runtime context, then delegate back to the raw tool.
+AgentScope adapter 增加了 FastMCP 特有的安全层：暴露面向模型的虚拟工具，
+转换参数，从服务端 runtime context 注入受保护参数，然后再委托给 raw tool。
 
-## Current scope
+## 当前范围
 
-Implemented in this initial repository baseline:
+这个初始仓库基线已经实现：
 
-- Java 11 Maven multi-module project
+- Java 11 Maven 多模块工程
 - Apache-2.0 license
-- Tool registration with JSON Schema input metadata
-- Annotation-based tool registration for service objects
-- In-memory tool listing and invocation
-- Tool result content, structured content, and metadata
-- Spring Boot starter that creates a `FastMcpServer` bean and registers Spring
-  beans with `@McpTool` methods
-- AgentScope adapter module for safe virtual tools and Toolkit registration
-- Unit tests and GitHub Actions CI
+- 带 JSON Schema input metadata 的工具注册
+- 面向 service object 的注解式工具注册
+- 内存态工具列表和工具调用
+- 工具结果 content、structured content 和 metadata
+- Spring Boot starter：创建 `FastMcpServer` bean，并注册带 `@McpTool` 方法的 Spring bean
+- AgentScope adapter module：支持安全虚拟工具和 Toolkit 注册
+- Unit tests 和 GitHub Actions CI
 
-Not implemented yet:
+尚未实现：
 
-- MCP HTTP or SSE transport endpoint
-- Resources and prompts
-- Plain classpath package scanning outside Spring
+- MCP HTTP 或 SSE transport endpoint
+- Resources 和 prompts
+- Spring 之外的普通 classpath package scanning
 - Client implementation
-- Authentication, lifecycle, and production middleware
+- Authentication、lifecycle 和 production middleware
 - Protocol conformance tests
 
-## Core quick start
+## Core 快速开始
 
-Use the core module when you want a plain Java API without Spring dependencies.
+当你需要一个不依赖 Spring 的普通 Java API 时，使用 core module。
 
 ```java
 import io.github.sandking.fastmcp.FastMcp;
@@ -62,11 +59,10 @@ ToolResult result = server.callTool("echo", Map.of("text", "hello"));
 System.out.println(result.content());
 ```
 
-## Annotation API in plain Java
+## 普通 Java 注解 API
 
-Keep business methods on normal service objects and register the instance with
-FastMCP. The core package does not depend on Spring, so the same API works in
-plain Java tests.
+业务方法可以保留在普通 service object 上，然后把实例注册到 FastMCP。
+core package 不依赖 Spring，所以同一套 API 也可以用于普通 Java 测试。
 
 ```java
 import io.github.sandking.fastmcp.AnnotatedToolRegistrar;
@@ -86,13 +82,13 @@ FastMcpServer server = FastMcp.server("Spring Boot MCP");
 AnnotatedToolRegistrar.register(server, new GreetingService());
 ```
 
-If parameter names are not retained by the application compiler, set
-`@ToolParam(name = "...")` explicitly or compile with `-parameters`.
+如果应用编译时没有保留参数名，请显式设置 `@ToolParam(name = "...")`，
+或者使用 `-parameters` 编译。
 
 ## Spring Boot starter
 
-Add the starter module to a Spring Boot application to create a `FastMcpServer`
-bean automatically. The starter scans Spring beans for `@McpTool` methods.
+把 starter module 加到 Spring Boot 应用后，会自动创建一个 `FastMcpServer`
+bean。starter 会扫描 Spring bean 上的 `@McpTool` 方法。
 
 ```xml
 <dependency>
@@ -121,10 +117,9 @@ fastmcp:
   name: Travel Tools
 ```
 
-The starter currently exposes the populated `FastMcpServer` bean only. It does
-not publish an MCP transport endpoint yet.
+starter 当前只暴露已填充的 `FastMcpServer` bean，还不会发布 MCP transport endpoint。
 
-For programmatic registration, declare a `FastMcpToolCustomizer` bean:
+如需通过代码注册工具，可以声明一个 `FastMcpToolCustomizer` bean：
 
 ```java
 import io.github.sandking.fastmcp.JsonSchemas;
@@ -139,7 +134,7 @@ FastMcpToolCustomizer pingTool() {
 }
 ```
 
-## Build
+## 构建
 
 ```bash
 mvn test
@@ -147,19 +142,17 @@ mvn test
 
 ## AgentScope adapter
 
-AgentScope is intentionally kept out of the core and Spring Boot starter
-dependencies. Use `fastmcp-agentscope-adapter` when the runtime is AgentScope
-Java and the model should call safe virtual tools instead of raw backend tools
-or raw AgentScope MCP tools.
+AgentScope 被刻意隔离在 core 和 Spring Boot starter 依赖之外。当运行时是
+AgentScope Java，并且模型应该调用安全虚拟工具，而不是 raw backend tools
+或 raw AgentScope MCP tools 时，使用 `fastmcp-agentscope-adapter`。
 
-AgentScope Java 2.x requires JDK 17 or newer, so the adapter is behind an
-optional Maven profile:
+AgentScope Java 2.x 需要 JDK 17 或更高版本，因此 adapter 放在可选 Maven profile 中：
 
 ```bash
 mvn -Pagentscope test
 ```
 
-The core path is:
+核心路径是：
 
 ```text
 raw FastMCP tool
@@ -171,13 +164,13 @@ raw FastMCP tool
   -> raw FastMcpServer.callTool(...)
 ```
 
-For example, a raw backend tool can remain `getOrdersByUserId(userId, status)`,
-while the model only sees `get_my_orders(status)`. The adapter injects `userId`
-from `RuntimeContext` before delegating to the raw tool.
+例如，raw backend tool 可以仍然是 `getOrdersByUserId(userId, status)`，
+但模型只能看到 `get_my_orders(status)`。adapter 会从 `RuntimeContext` 注入
+`userId`，然后再委托给 raw tool。
 
-The same mapping can also wrap a raw AgentScope `AgentTool`, including tools
-created from AgentScope MCP clients such as `mcp__orders__getOrdersByUserId`,
-without registering that raw tool name into the model-facing `Toolkit`.
+同一个 mapping 也可以包装 raw AgentScope `AgentTool`，包括由 AgentScope MCP
+client 创建的工具，例如 `mcp__orders__getOrdersByUserId`，而不把这个 raw tool name
+注册到模型可见的 `Toolkit` 中。
 
 ```java
 FastMcpAgentScopeTools.register(toolkit, server, FastMcpToolMapping.builder("getOrdersByUserId")
@@ -189,8 +182,8 @@ FastMcpAgentScopeTools.register(toolkit, server, FastMcpToolMapping.builder("get
     .build());
 ```
 
-When tools come from an AgentScope `McpClientWrapper`, let AgentScope keep
-handling MCP protocol details and register only the mapped virtual tools:
+当工具来自 AgentScope `McpClientWrapper` 时，让 AgentScope 继续处理 MCP 协议细节，
+但只注册 mapped virtual tools：
 
 ```java
 McpClientWrapper ordersMcpClient = mcpClientFactory.create(serverProperties);
@@ -207,22 +200,21 @@ FastMcpAgentScopeTools.registerMcpClient(toolkit, ordersMcpClient, List.of(
 )).block();
 ```
 
-`registerMcpClient` calls `initialize()` and `listTools()` on the wrapper, creates
-raw AgentScope `McpTool` delegates internally, and registers only the virtual
-tools into the supplied `Toolkit`. The mapping raw name may be the MCP
-`tools/list` name, or the AgentScope-style namespaced form
-`mcp__<clientName>__<toolName>`.
+`registerMcpClient` 会调用 wrapper 的 `initialize()` 和 `listTools()`，在内部创建
+raw AgentScope `McpTool` delegate，并且只把虚拟工具注册到传入的 `Toolkit`。
+mapping 的 raw name 可以是 MCP `tools/list` 返回的名称，也可以是 AgentScope 风格的
+namespaced form：`mcp__<clientName>__<toolName>`。
 
-Run the example with:
+运行示例：
 
 ```bash
 mvn -Pexamples test
 ```
 
-Example modules are compile-checked by Maven but are skipped during deploy, so
-package publishing only includes the parent and library modules.
+Example modules 会被 Maven 编译检查，但 deploy 时会跳过。因此发布包只包含 parent
+和 library modules。
 
-## Package layout
+## 包结构
 
 ```text
 fastmcp-core
@@ -258,8 +250,7 @@ examples/agentscope-adapter
     FastMcpAgentScopeExample  minimal runnable example class
 ```
 
-## Relationship to FastMCP Python
+## 与 FastMCP Python 的关系
 
-This project is intended to carry a Java implementation inspired by
-[FastMCP](https://github.com/PrefectHQ/fastmcp). It is not yet feature-equivalent
-with the Python project.
+本项目的目标是承载一个受 [FastMCP](https://github.com/PrefectHQ/fastmcp)
+启发的 Java 实现。它目前还没有和 Python 项目达到功能对等。
