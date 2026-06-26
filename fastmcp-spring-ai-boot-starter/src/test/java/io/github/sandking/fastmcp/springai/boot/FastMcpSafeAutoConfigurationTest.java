@@ -13,8 +13,10 @@ import io.modelcontextprotocol.client.McpSyncClient;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.ai.chat.model.ToolContext;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.ai.tool.ToolCallbackProvider;
@@ -22,14 +24,18 @@ import org.springframework.ai.tool.definition.DefaultToolDefinition;
 import org.springframework.ai.tool.definition.ToolDefinition;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
+@ExtendWith(OutputCaptureExtension.class)
 class FastMcpSafeAutoConfigurationTest {
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
     private static final TypeReference<Map<String, Object>> MAP_TYPE = new TypeReference<>() {
     };
     private static final AtomicReference<McpSyncClient> FAILING_MANAGED_CLIENT = new AtomicReference<>();
+    private static final AtomicInteger FAIL_FAST_CREATE_CLIENTS_CALLS = new AtomicInteger();
 
     private final ApplicationContextRunner contextRunner = new ApplicationContextRunner()
             .withConfiguration(AutoConfigurations.of(FastMcpSafeAutoConfiguration.class))
@@ -101,6 +107,122 @@ class FastMcpSafeAutoConfigurationTest {
                     assertThat(result).isEqualTo("orders for user-123 with status PAID");
                     assertThat(rawTool.lastInput()).containsEntry("orderStatus", "PAID")
                             .containsEntry("userId", "user-123");
+                });
+    }
+
+    @Test
+    void failsWhenExternalRawProviderDiagnosticsIsFail() {
+        contextRunner.withUserConfiguration(RawToolConfiguration.class)
+                .withPropertyValues("fastmcp.safe.diagnostics.external-raw-provider=fail")
+                .run(context -> {
+                    assertThat(context).hasFailed();
+                    assertThat(context.getStartupFailure())
+                            .hasRootCauseInstanceOf(IllegalStateException.class)
+                            .hasMessageContaining("External raw Spring AI ToolCallbackProvider beans are present")
+                            .hasMessageContaining("fastMcpSafeToolCallbackProvider");
+                });
+    }
+
+    @Test
+    void failsBeforeCreatingManagedClientsWhenExternalRawProviderDiagnosticsIsFail() {
+        FAIL_FAST_CREATE_CLIENTS_CALLS.set(0);
+
+        contextRunner.withUserConfiguration(CountingManagedClientWithExternalRawProviderConfiguration.class)
+                .withPropertyValues(
+                        "fastmcp.safe.diagnostics.external-raw-provider=fail",
+                        "fastmcp.safe.servers.orders.transport=streamable-http",
+                        "fastmcp.safe.servers.orders.endpoint=https://mcp.example.test/mcp")
+                .run(context -> {
+                    assertThat(context).hasFailed();
+                    assertThat(FAIL_FAST_CREATE_CLIENTS_CALLS).hasValue(0);
+                    assertThat(context.getStartupFailure())
+                            .hasRootCauseInstanceOf(IllegalStateException.class)
+                            .hasMessageContaining("External raw Spring AI ToolCallbackProvider beans are present")
+                            .hasMessageContaining("rawOrderToolProvider");
+                });
+    }
+
+    @Test
+    void allowsExternalRawProviderWhenDiagnosticsIsOff() {
+        contextRunner.withUserConfiguration(RawToolConfiguration.class)
+                .withPropertyValues("fastmcp.safe.diagnostics.external-raw-provider=off")
+                .run(context -> {
+                    assertThat(context).hasNotFailed();
+                    assertThat(context).hasBean("fastMcpSafeToolCallbackProvider");
+                });
+    }
+
+    @Test
+    void treatsExternalRawProviderDiagnosticsFailCaseAndWhitespaceAsFail() {
+        contextRunner.withUserConfiguration(RawToolConfiguration.class)
+                .withPropertyValues("fastmcp.safe.diagnostics.external-raw-provider= FAIL ")
+                .run(context -> {
+                    assertThat(context).hasFailed();
+                    assertThat(context.getStartupFailure())
+                            .hasRootCauseInstanceOf(IllegalStateException.class)
+                            .hasMessageContaining("External raw Spring AI ToolCallbackProvider beans are present")
+                            .hasMessageContaining("fastMcpSafeToolCallbackProvider");
+                });
+    }
+
+    @Test
+    void treatsExternalRawProviderDiagnosticsOffCaseAndWhitespaceAsOff() {
+        contextRunner.withUserConfiguration(RawToolConfiguration.class)
+                .withPropertyValues("fastmcp.safe.diagnostics.external-raw-provider= OFF ")
+                .run(context -> {
+                    assertThat(context).hasNotFailed();
+                    assertThat(context).hasBean("fastMcpSafeToolCallbackProvider");
+                });
+    }
+
+    @Test
+    void failsClearlyWhenExternalRawProviderDiagnosticsModeIsBlank() {
+        contextRunner.withUserConfiguration(RawToolConfiguration.class)
+                .withPropertyValues("fastmcp.safe.diagnostics.external-raw-provider=")
+                .run(context -> {
+                    assertThat(context).hasFailed();
+                    assertThat(context.getStartupFailure())
+                            .hasRootCauseInstanceOf(IllegalArgumentException.class)
+                            .hasMessageContaining(
+                                    "Unsupported fastmcp.safe.diagnostics.external-raw-provider:");
+                });
+    }
+
+    @Test
+    void failsClearlyWhenExternalRawProviderDiagnosticsModeIsInvalid() {
+        contextRunner.withUserConfiguration(RawToolConfiguration.class)
+                .withPropertyValues("fastmcp.safe.diagnostics.external-raw-provider=block")
+                .run(context -> {
+                    assertThat(context).hasFailed();
+                    assertThat(context.getStartupFailure())
+                            .hasRootCauseInstanceOf(IllegalArgumentException.class)
+                            .hasMessageContaining(
+                                    "Unsupported fastmcp.safe.diagnostics.external-raw-provider: block");
+                });
+    }
+
+    @Test
+    void defaultWarnDiagnosticsAllowsExternalRawProvider(CapturedOutput output) {
+        contextRunner.withUserConfiguration(RawToolConfiguration.class).run(context -> {
+            assertThat(context).hasNotFailed();
+            assertThat(context).hasBean("fastMcpSafeToolCallbackProvider");
+        });
+
+        assertThat(output).contains("External raw Spring AI ToolCallbackProvider beans are present")
+                .contains("fastMcpSafeToolCallbackProvider");
+    }
+
+    @Test
+    void doesNotFailManagedOnlyProviderWhenExternalRawProviderDiagnosticsIsFail() {
+        contextRunner.withUserConfiguration(ManagedOnlyConfiguration.class)
+                .withPropertyValues(
+                        "fastmcp.safe.diagnostics.external-raw-provider=fail",
+                        "fastmcp.safe.servers.orders.transport=streamable-http",
+                        "fastmcp.safe.servers.orders.endpoint=https://mcp.example.test/mcp")
+                .run(context -> {
+                    assertThat(context).hasNotFailed();
+                    assertThat(context).hasBean("fastMcpSafeToolCallbackProvider");
+                    assertThat(context).hasSingleBean(ToolCallbackProvider.class);
                 });
     }
 
@@ -299,6 +421,29 @@ class FastMcpSafeAutoConfigurationTest {
     }
 
     @Configuration(proxyBeanMethods = false)
+    static class CountingManagedClientWithExternalRawProviderConfiguration {
+        @Bean
+        CapturingToolCallback rawOrderTool() {
+            return new CapturingToolCallback();
+        }
+
+        @Bean
+        FastMcpSpringAiManagedClientFactory fastMcpSpringAiManagedClientFactory() {
+            return new CountingManagedClientFactory(FAIL_FAST_CREATE_CLIENTS_CALLS);
+        }
+
+        @Bean
+        ToolCallbackProvider rawOrderToolProvider(CapturingToolCallback rawOrderTool) {
+            return ToolCallbackProvider.from(rawOrderTool);
+        }
+
+        @Bean("currentUserId")
+        SpringAiToolArgumentResolver currentUserId() {
+            return context -> context.getContext().get("userId");
+        }
+    }
+
+    @Configuration(proxyBeanMethods = false)
     static class FailingManagedClientConfiguration {
         @Bean
         FastMcpSpringAiManagedClientFactory fastMcpSpringAiManagedClientFactory() {
@@ -345,6 +490,27 @@ class FastMcpSafeAutoConfigurationTest {
                     .map(FastMcpSpringAiManagedClientFactory.ManagedMcpClient::client)
                     .toList());
             return rawProvider;
+        }
+    }
+
+    static final class CountingManagedClientFactory extends FastMcpSpringAiManagedClientFactory {
+        private final AtomicInteger createClientsCalls;
+        private final McpSyncClient managedClient = mock(McpSyncClient.class);
+        private final CapturingToolCallback managedRawTool = new CapturingToolCallback();
+
+        private CountingManagedClientFactory(AtomicInteger createClientsCalls) {
+            this.createClientsCalls = createClientsCalls;
+        }
+
+        @Override
+        List<FastMcpSpringAiManagedClientFactory.ManagedMcpClient> createClients(SafeMcpConfiguration configuration) {
+            createClientsCalls.incrementAndGet();
+            return List.of(new FastMcpSpringAiManagedClientFactory.ManagedMcpClient("orders", managedClient));
+        }
+
+        @Override
+        ToolCallbackProvider createRawProvider(List<McpSyncClient> clients) {
+            return ToolCallbackProvider.from(managedRawTool);
         }
     }
 

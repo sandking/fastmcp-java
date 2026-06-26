@@ -183,6 +183,19 @@ Existing external raw Spring AI `ToolCallbackProvider` beans are still supported
 for compatibility, but application code should inject and pass the safe provider
 to the model.
 
+External provider diagnostics make that compatibility risk visible. This is a
+conservative diagnostic: external Spring AI `ToolCallbackProvider` beans are the
+main raw-provider exposure risk, although they may include non-raw business
+providers. The default is `warn`; production deployments should use `fail` or at
+least keep the default warning enabled:
+
+```yaml
+fastmcp:
+  safe:
+    diagnostics:
+      external-raw-provider: fail # warn | fail | off
+```
+
 For an external raw-provider compatibility path, set
 `fastmcp.safe.servers.<server>.enabled=false` to skip managed client creation
 while still using the configured tool mappings to wrap the external provider.

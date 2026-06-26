@@ -1,6 +1,8 @@
 package io.github.sandking.fastmcp.springai;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import io.github.sandking.fastmcp.safe.SafeResultSanitizer;
+import io.github.sandking.fastmcp.safe.SafeResultSanitizers;
 import io.github.sandking.fastmcp.safe.config.SafeMcpToolConfiguration;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -19,6 +21,7 @@ public final class SpringAiMcpToolMapping {
     private final Map<String, SpringAiToolArgumentResolver> injectedArguments;
     private final boolean readOnly;
     private final boolean concurrencySafe;
+    private final SafeResultSanitizer resultSanitizer;
 
     private SpringAiMcpToolMapping(Builder builder) {
         this.rawServerName = requireText(builder.rawServerName, "rawServerName");
@@ -30,6 +33,7 @@ public final class SpringAiMcpToolMapping {
         this.injectedArguments = Collections.unmodifiableMap(new LinkedHashMap<>(builder.injectedArguments));
         this.readOnly = builder.readOnly;
         this.concurrencySafe = builder.concurrencySafe;
+        this.resultSanitizer = builder.resultSanitizer;
     }
 
     public static Builder builder(String rawName) {
@@ -102,6 +106,10 @@ public final class SpringAiMcpToolMapping {
         return concurrencySafe;
     }
 
+    public SafeResultSanitizer resultSanitizer() {
+        return resultSanitizer;
+    }
+
     static String requireText(String value, String fieldName) {
         Objects.requireNonNull(value, fieldName + " must not be null");
         String trimmed = value.trim();
@@ -121,6 +129,7 @@ public final class SpringAiMcpToolMapping {
         private final Map<String, SpringAiToolArgumentResolver> injectedArguments = new LinkedHashMap<>();
         private boolean readOnly;
         private boolean concurrencySafe;
+        private SafeResultSanitizer resultSanitizer = SafeResultSanitizers.modelSafe();
 
         private Builder(String rawServerName, String rawName) {
             this.rawServerName = requireText(rawServerName, "rawServerName");
@@ -160,6 +169,11 @@ public final class SpringAiMcpToolMapping {
 
         public Builder concurrencySafe(boolean concurrencySafe) {
             this.concurrencySafe = concurrencySafe;
+            return this;
+        }
+
+        public Builder resultSanitizer(SafeResultSanitizer resultSanitizer) {
+            this.resultSanitizer = Objects.requireNonNull(resultSanitizer, "resultSanitizer must not be null");
             return this;
         }
 

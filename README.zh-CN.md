@@ -139,6 +139,13 @@ managed MCP HTTP client，不会进入 virtual tool name、description、schema 
 arguments。敏感值应使用 Spring Boot 占位符或部署环境注入；FastMCP 不负责 secret
 生命周期，也不提供 secret resolver。
 
+对于 `streamable-http`，应用侧可以只声明 `fastmcp.safe.servers.<server>.transport`
+和 `endpoint` 等连接配置，再为每个 raw tool 配置 virtual metadata、普通参数映射
+和 injected argument resolver。starter 会在内部创建 managed Spring AI MCP client，
+再发布 primary 的 `fastMcpSafeToolCallbackProvider`；模型侧拿到的是
+`search_catalog(keyword)` 这类安全虚拟工具，而不是 raw MCP tool 或注入后的
+`tenantId` 参数。
+
 声明一个 bean，bean name 与配置里的 source name 一致：
 
 ```java
@@ -166,6 +173,18 @@ tools 转成内部 raw callbacks，再按配置包装成安全 provider，并发
 不会作为 Spring bean 暴露。managed raw callbacks 会按配置 server 分别包装，因此
 不同 server 下可以存在同名 raw MCP tool，不会串到同一个 raw provider。已有外部 raw
 Spring AI `ToolCallbackProvider` bean 仍然兼容，但应用侧应该把 safe provider 交给模型。
+
+外部 provider diagnostics 可以显式暴露这条兼容路径的风险。这是保守诊断：外部
+Spring AI `ToolCallbackProvider` bean 是 raw provider 暴露的主要风险，也可能包含
+非 raw 的业务 provider。默认值是 `warn`；生产环境建议使用 `fail`，至少保留默认
+warning：
+
+```yaml
+fastmcp:
+  safe:
+    diagnostics:
+      external-raw-provider: fail # warn | fail | off
+```
 
 如果走外部 raw provider 兼容路径，可以设置
 `fastmcp.safe.servers.<server>.enabled=false` 跳过 managed client 创建，同时继续用
@@ -324,10 +343,9 @@ ToolCallbackProvider safeProvider = FastMcpSpringAiTools.wrap(rawProvider, List.
 - `fastmcp-examples/spring-ai-adapter`：把已有 raw Spring AI `ToolCallbackProvider`
   包装成安全 provider，并从 `ToolContext` 注入受保护参数。
 - `fastmcp-examples/spring-ai-boot-starter`：绑定 `fastmcp.safe.*`，声明
-  `currentUserId` 等 resolver bean，并验证 starter 基于已有 raw provider
-  发布 primary 的 `fastMcpSafeToolCallbackProvider`。managed MCP client 路径，包括
-  streamable HTTP transport 和按 server 隔离 raw provider，当前由 starter 测试覆盖，
-  后续补真实 MCP server 示例。
+  `currentUserId` / `currentTenantId` 等 resolver bean，并验证 starter 基于已有 raw
+  provider 或本地 fake `streamable-http` MCP server 发布 primary 的
+  `fastMcpSafeToolCallbackProvider`，模型只看到 safe virtual tool。
 
 运行全部示例：
 

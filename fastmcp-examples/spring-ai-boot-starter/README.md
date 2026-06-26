@@ -17,12 +17,12 @@ It covers:
 - a primary safe `ToolCallbackProvider` published by the starter
 - raw provider remaining present but not being the provider selected by type
 - model-supplied protected arguments rejected before the raw provider is called
+- managed `streamable-http` MCP client creation from `fastmcp.safe.*` properties
+- a localhost fake MCP server exposing raw `searchCatalogByTenant`, while the model
+  only sees the safe virtual `search_catalog(keyword)` callback
 
 Run it from the repository root with JDK 17 or newer:
 
 ```bash
 mvn -Pexamples -pl fastmcp-examples/spring-ai-boot-starter -am test
 ```
-
-The starter currently wraps existing raw Spring AI providers. It does not create
-MCP clients from `fastmcp.safe.*` server metadata yet.

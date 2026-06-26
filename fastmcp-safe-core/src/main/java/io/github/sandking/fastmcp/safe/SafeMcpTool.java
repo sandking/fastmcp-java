@@ -14,6 +14,7 @@ public final class SafeMcpTool {
     private final RawToolInvoker rawToolInvoker;
     private final SafeMcpPolicy policy;
     private final SafeAuditSink auditSink;
+    private final SafeResultSanitizer resultSanitizer;
 
     public SafeMcpTool(String framework, SafeMcpToolSpec spec, RawToolInvoker rawToolInvoker) {
         this(framework, spec, rawToolInvoker, SafeMcpPolicies.allow(), SafeAuditSink.noOp());
@@ -21,11 +22,17 @@ public final class SafeMcpTool {
 
     public SafeMcpTool(String framework, SafeMcpToolSpec spec, RawToolInvoker rawToolInvoker,
             SafeMcpPolicy policy, SafeAuditSink auditSink) {
+        this(framework, spec, rawToolInvoker, policy, auditSink, SafeResultSanitizers.modelSafe());
+    }
+
+    public SafeMcpTool(String framework, SafeMcpToolSpec spec, RawToolInvoker rawToolInvoker,
+            SafeMcpPolicy policy, SafeAuditSink auditSink, SafeResultSanitizer resultSanitizer) {
         this.framework = framework == null ? "" : framework;
         this.spec = Objects.requireNonNull(spec, "spec must not be null");
         this.rawToolInvoker = Objects.requireNonNull(rawToolInvoker, "rawToolInvoker must not be null");
         this.policy = policy == null ? SafeMcpPolicies.allow() : policy;
         this.auditSink = auditSink == null ? SafeAuditSink.noOp() : auditSink;
+        this.resultSanitizer = resultSanitizer == null ? SafeResultSanitizers.modelSafe() : resultSanitizer;
     }
 
     public CompletionStage<SafeToolResult> callAsync(Map<String, ?> input, SafeToolCallContext context) {
@@ -57,8 +64,15 @@ public final class SafeMcpTool {
                     recordAudit(safeContext, false, code, "allow");
                     throw new CompletionException(cause);
                 }
+                RawToolResult sanitizedResult;
+                try {
+                    sanitizedResult = normalizeResult(resultSanitizer.sanitize(safeContext, request, result));
+                } catch (RuntimeException | Error sanitizerException) {
+                    recordAudit(safeContext, false, "RESULT_SANITIZER_FAILED", "allow");
+                    throw sanitizerException;
+                }
                 recordAudit(safeContext, true, null, "allow");
-                return new SafeToolResult(spec.name(), result);
+                return new SafeToolResult(spec.name(), sanitizedResult);
             });
         } catch (RuntimeException exception) {
             String code = exception instanceof SafeMcpException ? ((SafeMcpException) exception).code()
@@ -100,6 +114,10 @@ public final class SafeMcpTool {
                 .success(success)
                 .errorCode(errorCode)
                 .build());
+    }
+
+    private static RawToolResult normalizeResult(RawToolResult result) {
+        return result == null ? RawToolResult.text("") : result;
     }
 
     private static Throwable unwrap(Throwable exception) {

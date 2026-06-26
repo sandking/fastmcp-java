@@ -1,6 +1,8 @@
 package io.github.sandking.fastmcp.agentscope;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import io.github.sandking.fastmcp.safe.SafeResultSanitizer;
+import io.github.sandking.fastmcp.safe.SafeResultSanitizers;
 import io.github.sandking.fastmcp.safe.config.SafeMcpToolConfiguration;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -16,6 +18,7 @@ public final class FastMcpToolMapping {
     private final Map<String, ToolArgumentResolver> injectedArguments;
     private final boolean readOnly;
     private final boolean concurrencySafe;
+    private final SafeResultSanitizer resultSanitizer;
 
     private FastMcpToolMapping(Builder builder) {
         this.rawName = requireText(builder.rawName, "rawName");
@@ -26,6 +29,7 @@ public final class FastMcpToolMapping {
         this.injectedArguments = Collections.unmodifiableMap(new LinkedHashMap<>(builder.injectedArguments));
         this.readOnly = builder.readOnly;
         this.concurrencySafe = builder.concurrencySafe;
+        this.resultSanitizer = builder.resultSanitizer;
     }
 
     public static Builder builder(String rawName) {
@@ -85,6 +89,10 @@ public final class FastMcpToolMapping {
         return concurrencySafe;
     }
 
+    public SafeResultSanitizer resultSanitizer() {
+        return resultSanitizer;
+    }
+
     static String requireText(String value, String fieldName) {
         Objects.requireNonNull(value, fieldName + " must not be null");
         String trimmed = value.trim();
@@ -103,6 +111,7 @@ public final class FastMcpToolMapping {
         private final Map<String, ToolArgumentResolver> injectedArguments = new LinkedHashMap<>();
         private boolean readOnly;
         private boolean concurrencySafe;
+        private SafeResultSanitizer resultSanitizer = SafeResultSanitizers.modelSafe();
 
         private Builder(String rawName) {
             this.rawName = requireText(rawName, "rawName");
@@ -141,6 +150,11 @@ public final class FastMcpToolMapping {
 
         public Builder concurrencySafe(boolean concurrencySafe) {
             this.concurrencySafe = concurrencySafe;
+            return this;
+        }
+
+        public Builder resultSanitizer(SafeResultSanitizer resultSanitizer) {
+            this.resultSanitizer = Objects.requireNonNull(resultSanitizer, "resultSanitizer must not be null");
             return this;
         }
 

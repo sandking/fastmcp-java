@@ -9,7 +9,9 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import io.github.sandking.fastmcp.safe.RawToolResult;
 import io.github.sandking.fastmcp.safe.SafeMcpException;
+import io.github.sandking.fastmcp.safe.SafeResultSanitizers;
 import io.github.sandking.fastmcp.safe.config.SafeMcpToolConfiguration;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
@@ -75,6 +77,25 @@ class FastMcpSpringAiToolsTest {
     }
 
     @Test
+    void allowsSameCallbackToExposeDefinitionNameAndOriginalToolName() throws Exception {
+        OriginalNameToolCallback rawTool = new OriginalNameToolCallback(
+                "getOrdersByUserId",
+                "getOrdersByUserId",
+                rawOrderSchema());
+
+        ToolCallbackProvider provider = FastMcpSpringAiTools.wrap(new ToolCallback[] { rawTool },
+                currentUserOrdersMapping());
+        ToolCallback[] callbacks = provider.getToolCallbacks();
+
+        assertEquals(1, callbacks.length);
+        String result = callbacks[0].call("{\"status\":\"PAID\"}",
+                new ToolContext(Map.of("userId", "user-123")));
+
+        assertEquals("orders for user-123 with status PAID", result);
+        assertEquals(Map.of("status", "PAID", "userId", "user-123"), rawTool.lastInput());
+    }
+
+    @Test
     void failsWhenMappedRawToolDoesNotExist() {
         CapturingToolCallback rawTool = new CapturingToolCallback("otherTool", rawOrderSchema());
 
@@ -82,6 +103,31 @@ class FastMcpSpringAiToolsTest {
                 () -> FastMcpSpringAiTools.wrap(new ToolCallback[] { rawTool }, currentUserOrdersMapping()));
 
         assertEquals("Raw Spring AI tool not found: spring-ai/getOrdersByUserId", exception.getMessage());
+    }
+
+    @Test
+    void failsWhenDuplicateRawSpringAiToolKeyExists() {
+        CapturingToolCallback first = new CapturingToolCallback("getOrdersByUserId", rawOrderSchema());
+        CapturingToolCallback second = new CapturingToolCallback("getOrdersByUserId", rawOrderSchema());
+
+        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
+                () -> FastMcpSpringAiTools.wrap(new ToolCallback[] { first, second }, currentUserOrdersMapping()));
+
+        assertEquals("Duplicate raw Spring AI tool: spring-ai/getOrdersByUserId", exception.getMessage());
+    }
+
+    @Test
+    void failsWhenOriginalToolNameCollidesWithAnotherRawTool() {
+        CapturingToolCallback direct = new CapturingToolCallback("getOrdersByUserId", rawOrderSchema());
+        OriginalNameToolCallback namespaced = new OriginalNameToolCallback(
+                "mcp__orders__getOrdersByUserId",
+                "getOrdersByUserId",
+                rawOrderSchema());
+
+        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
+                () -> FastMcpSpringAiTools.wrap(new ToolCallback[] { direct, namespaced }, currentUserOrdersMapping()));
+
+        assertEquals("Duplicate raw Spring AI tool: spring-ai/getOrdersByUserId", exception.getMessage());
     }
 
     @Test
@@ -120,6 +166,7 @@ class FastMcpSpringAiToolsTest {
         assertFalse(mapping.inputSchema().toString().contains("userId"));
         assertEquals(Map.of("status", "orderStatus"), mapping.argumentMappings());
         assertTrue(mapping.readOnly());
+        assertEquals(SafeResultSanitizers.modelSafe(), mapping.resultSanitizer());
         assertEquals("user-123", mapping.injectedArguments().get("userId")
                 .resolve(new ToolContext(Map.of("userId", "user-123"))));
     }
@@ -149,6 +196,26 @@ class FastMcpSpringAiToolsTest {
 
         assertEquals(Map.of("status", "PAID", "userId", "orders-user"), ordersTool.lastInput());
         assertEquals(Map.of("status", "OPEN", "userId", "catalog-user"), catalogTool.lastInput());
+    }
+
+    @Test
+    void customResultSanitizerCanModifyContentThroughMapping() {
+        CapturingToolCallback rawTool = new CapturingToolCallback("getOrdersByUserId", rawOrderSchema());
+        SpringAiMcpToolMapping mapping = SpringAiMcpToolMapping.builder("getOrdersByUserId")
+                .name("get_my_orders")
+                .description("Get orders for the authenticated user.")
+                .inputSchema(virtualOrderSchema())
+                .injectArgument("userId", context -> context.getContext().get("userId"))
+                .resultSanitizer((context, request, rawResult) -> RawToolResult.builder()
+                        .content("sanitized: " + rawResult.content())
+                        .build())
+                .build();
+
+        ToolCallbackProvider provider = FastMcpSpringAiTools.wrap(new ToolCallback[] { rawTool }, mapping);
+        String result = provider.getToolCallbacks()[0].call("{\"status\":\"PAID\"}",
+                new ToolContext(Map.of("userId", "user-123")));
+
+        assertEquals("sanitized: orders for user-123 with status PAID", result);
     }
 
     private static SpringAiMcpToolMapping currentUserOrdersMapping() {

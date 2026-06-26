@@ -16,8 +16,10 @@ import io.agentscope.core.tool.Toolkit;
 import io.agentscope.core.tool.mcp.McpClientWrapper;
 import io.agentscope.core.tool.mcp.McpTool;
 import io.github.sandking.fastmcp.safe.RawToolResult;
+import io.github.sandking.fastmcp.safe.SafeAuditSink;
 import io.github.sandking.fastmcp.safe.SafeMcpTool;
 import io.github.sandking.fastmcp.safe.SafeMcpToolSpec;
+import io.github.sandking.fastmcp.safe.SafeMcpPolicies;
 import io.github.sandking.fastmcp.safe.SafeToolCallContext;
 import io.github.sandking.fastmcp.safe.SafeToolResult;
 import io.modelcontextprotocol.spec.McpSchema;
@@ -65,8 +67,7 @@ public final class FastMcpAgentScopeTools {
 
     private static final class AgentScopeToolAdapter extends ToolBase {
         private final AgentTool rawTool;
-        private final FastMcpToolMapping mapping;
-        private final String rawServerName;
+        private final SafeMcpTool safeTool;
 
         private AgentScopeToolAdapter(AgentTool rawTool, FastMcpToolMapping mapping) {
             this(rawTool, mapping, rawServerName(rawTool));
@@ -80,23 +81,27 @@ public final class FastMcpAgentScopeTools {
                     .readOnly(readOnly(rawTool, mapping))
                     .concurrencySafe(concurrencySafe(rawTool, mapping)));
             this.rawTool = rawTool;
-            this.mapping = mapping;
-            this.rawServerName = rawServerName;
+            this.safeTool = new SafeMcpTool("agentscope",
+                    toSafeSpec(mapping, rawServerName, rawTool.getName(), description(rawTool, mapping),
+                            modelVisibleInputSchema(rawTool, mapping), readOnly(rawTool, mapping),
+                            concurrencySafe(rawTool, mapping)),
+                    (serverName, rawToolName, rawArguments, context) -> rawTool
+                            .callAsync(toRawParam(context, rawArguments))
+                            .map(FastMcpAgentScopeTools::toRawToolResult)
+                            .toFuture(),
+                    SafeMcpPolicies.allow(),
+                    SafeAuditSink.noOp(),
+                    mapping.resultSanitizer());
         }
 
         @Override
         public Mono<ToolResultBlock> callAsync(ToolCallParam param) {
-            SafeMcpTool safeTool = new SafeMcpTool("agentscope",
-                    toSafeSpec(mapping, rawServerName, rawTool.getName(), description(rawTool, mapping), null,
-                            readOnly(rawTool, mapping), concurrencySafe(rawTool, mapping)),
-                    (serverName, rawToolName, rawArguments, context) -> rawTool.callAsync(toRawParam(param, rawArguments))
-                            .map(FastMcpAgentScopeTools::toRawToolResult)
-                            .toFuture());
             return Mono.fromCompletionStage(safeTool.callAsync(input(param), safeContext(param)))
                     .map(result -> toAgentScopeResult(id(param), result));
         }
 
-        private ToolCallParam toRawParam(ToolCallParam param, Map<String, Object> rawArguments) {
+        private ToolCallParam toRawParam(SafeToolCallContext context, Map<String, Object> rawArguments) {
+            ToolCallParam param = context.frameworkContext(ToolCallParam.class);
             ToolCallParam.Builder builder = ToolCallParam.builder()
                     .toolUseBlock(ToolUseBlock.builder()
                             .id(id(param))
@@ -122,8 +127,8 @@ public final class FastMcpAgentScopeTools {
             List<FastMcpToolMapping> mappings) {
         Map<String, McpSchema.Tool> rawTools = new LinkedHashMap<>();
         for (McpSchema.Tool tool : tools) {
-            rawTools.put(tool.name(), tool);
-            rawTools.put(namespacedMcpToolName(client, tool.name()), tool);
+            putRawMcpTool(rawTools, client.getName(), tool.name(), tool);
+            putRawMcpTool(rawTools, client.getName(), namespacedMcpToolName(client, tool.name()), tool);
         }
 
         for (FastMcpToolMapping mapping : mappings) {
@@ -155,6 +160,14 @@ public final class FastMcpAgentScopeTools {
         return "mcp__" + client.getName() + "__" + toolName;
     }
 
+    private static void putRawMcpTool(Map<String, McpSchema.Tool> rawTools, String serverName, String key,
+            McpSchema.Tool tool) {
+        McpSchema.Tool previous = rawTools.putIfAbsent(key, tool);
+        if (previous != null) {
+            throw new IllegalArgumentException("Duplicate raw AgentScope MCP tool: " + serverName + "/" + key);
+        }
+    }
+
     private static Map<String, Object> toMap(JsonNode schema) {
         return OBJECT_MAPPER.convertValue(schema, MAP_TYPE);
     }
@@ -166,6 +179,11 @@ public final class FastMcpAgentScopeTools {
         }
         Map<String, Object> parameters = rawTool.getParameters();
         return parameters == null ? Map.of() : new LinkedHashMap<>(parameters);
+    }
+
+    private static JsonNode modelVisibleInputSchema(AgentTool rawTool, FastMcpToolMapping mapping) {
+        JsonNode schema = mapping.inputSchema();
+        return schema == null ? OBJECT_MAPPER.valueToTree(inputSchema(rawTool, mapping)) : schema;
     }
 
     private static String description(AgentTool rawTool, FastMcpToolMapping mapping) {

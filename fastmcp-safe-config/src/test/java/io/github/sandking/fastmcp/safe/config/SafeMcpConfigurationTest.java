@@ -138,6 +138,25 @@ class SafeMcpConfigurationTest {
     }
 
     @Test
+    void rejectsNestedInputSchemaThatExposesInjectedArgument() {
+        assertConfigError("PROTECTED_ARGUMENT_IN_SCHEMA",
+                () -> SafeMcpToolConfiguration.builder("getOrdersByUserId")
+                        .name("get_my_orders")
+                        .description("Get orders for the authenticated user.")
+                        .inputSchema(schemaWithNestedProperty("userId"))
+                        .injectArgument("userId", "currentUserId")
+                        .build());
+        assertConfigError("PROTECTED_ARGUMENT_IN_SCHEMA",
+                () -> SafeMcpToolConfiguration.builder("getOrdersByUserId")
+                        .name("get_my_orders")
+                        .description("Get orders for the authenticated user.")
+                        .inputSchema(schemaWithNestedProperty("currentUser"))
+                        .mapArgument("currentUser", "userId")
+                        .injectArgument("userId", "currentUserId")
+                        .build());
+    }
+
+    @Test
     void storesManagedClientConnectionSettings() {
         SafeMcpServerConfiguration server = SafeMcpServerConfiguration.builder("orders")
                 .enabled(false)
@@ -193,6 +212,17 @@ class SafeMcpConfigurationTest {
         ObjectNode properties = JsonNodeFactory.instance.objectNode();
         properties.set(propertyName, JsonNodeFactory.instance.objectNode().put("type", "string"));
         schema.set("properties", properties);
+        return schema;
+    }
+
+    private static ObjectNode schemaWithNestedProperty(String propertyName) {
+        ObjectNode schema = JsonNodeFactory.instance.objectNode();
+        schema.put("type", "object");
+        ObjectNode allOfItem = JsonNodeFactory.instance.objectNode();
+        ObjectNode properties = JsonNodeFactory.instance.objectNode();
+        properties.set(propertyName, JsonNodeFactory.instance.objectNode().put("type", "string"));
+        allOfItem.set("properties", properties);
+        schema.putArray("allOf").add(allOfItem);
         return schema;
     }
 

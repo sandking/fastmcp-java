@@ -117,6 +117,35 @@ class SafeMcpToolTest {
     }
 
     @Test
+    void rejectsNestedInputSchemaThatExposesInjectedRawArgument() {
+        ObjectNode schema = schemaWithNestedProperty("userId");
+
+        SafeMcpException exception = assertThrows(SafeMcpException.class,
+                () -> SafeMcpToolSpec.builder("orders", "getOrdersByUserId")
+                        .name("get_my_orders")
+                        .inputSchema(schema)
+                        .injectArgument("userId", SafeToolCallContext::userId)
+                        .build());
+
+        assertEquals("PROTECTED_ARGUMENT_IN_SCHEMA", exception.code());
+    }
+
+    @Test
+    void rejectsNestedInputSchemaThatExposesInjectedVirtualArgument() {
+        ObjectNode schema = schemaWithNestedProperty("currentUser");
+
+        SafeMcpException exception = assertThrows(SafeMcpException.class,
+                () -> SafeMcpToolSpec.builder("orders", "getOrdersByUserId")
+                        .name("get_my_orders")
+                        .inputSchema(schema)
+                        .mapArgument("currentUser", "userId")
+                        .injectArgument("userId", SafeToolCallContext::userId)
+                        .build());
+
+        assertEquals("PROTECTED_ARGUMENT_IN_SCHEMA", exception.code());
+    }
+
+    @Test
     void doesNotCallRawToolWhenPolicyDenies() {
         AtomicBoolean rawCalled = new AtomicBoolean(false);
         List<SafeAuditEvent> auditEvents = new ArrayList<>();
@@ -187,6 +216,117 @@ class SafeMcpToolTest {
         assertEquals(context, capturedContext.get());
     }
 
+    @Test
+    void defaultResultSanitizerDropsRawMetadataAndStructuredContent() {
+        SafeMcpTool tool = new SafeMcpTool("test", orderToolSpec(),
+                (serverName, rawToolName, rawArguments, context) -> CompletableFuture.completedFuture(
+                        RawToolResult.builder()
+                                .content("ok")
+                                .structuredContent(Map.of("internal", "secret"))
+                                .meta("rawToolName", "getOrdersByUserId")
+                                .meta("userId", "secret-user")
+                                .build()));
+
+        SafeToolResult result = tool.callAsync(
+                Map.of("status", "paid"),
+                SafeToolCallContext.builder().userId("user-1").tenantId("tenant-1").build())
+                .toCompletableFuture()
+                .join();
+
+        assertEquals("ok", result.content());
+        assertTrue(result.meta().isEmpty());
+        assertTrue(result.structuredContent().isEmpty());
+    }
+
+    @Test
+    void explicitPassThroughResultSanitizerPreservesRawMetadata() {
+        Map<String, Object> structuredContent = Map.of("visible", true);
+        SafeMcpTool tool = new SafeMcpTool("test", orderToolSpec(),
+                (serverName, rawToolName, rawArguments, context) -> CompletableFuture.completedFuture(
+                        RawToolResult.builder()
+                                .content("ok")
+                                .structuredContent(structuredContent)
+                                .meta("traceId", "trace-1")
+                                .build()),
+                SafeMcpPolicies.allow(),
+                SafeAuditSink.noOp(),
+                SafeResultSanitizers.passThrough());
+
+        SafeToolResult result = tool.callAsync(
+                Map.of("status", "paid"),
+                SafeToolCallContext.builder().userId("user-1").tenantId("tenant-1").build())
+                .toCompletableFuture()
+                .join();
+
+        assertEquals(Map.of("traceId", "trace-1"), result.meta());
+        assertTrue(result.structuredContent().isPresent());
+        assertEquals(structuredContent, result.structuredContent().orElseThrow());
+    }
+
+    @Test
+    void defaultResultSanitizerConvertsNullRawResultToEmptyResult() {
+        SafeMcpTool tool = new SafeMcpTool("test", orderToolSpec(),
+                (serverName, rawToolName, rawArguments, context) -> CompletableFuture.completedFuture(null));
+
+        SafeToolResult result = tool.callAsync(
+                Map.of("status", "paid"),
+                SafeToolCallContext.builder().userId("user-1").tenantId("tenant-1").build())
+                .toCompletableFuture()
+                .join();
+
+        assertEquals("", result.content());
+        assertTrue(result.meta().isEmpty());
+        assertTrue(result.structuredContent().isEmpty());
+    }
+
+    @Test
+    void customResultSanitizerNullReturnConvertsToEmptyResult() {
+        SafeMcpTool tool = new SafeMcpTool("test", orderToolSpec(),
+                (serverName, rawToolName, rawArguments, context) -> CompletableFuture.completedFuture(
+                        RawToolResult.text("ok")),
+                SafeMcpPolicies.allow(),
+                SafeAuditSink.noOp(),
+                (context, request, rawResult) -> null);
+
+        SafeToolResult result = tool.callAsync(
+                Map.of("status", "paid"),
+                SafeToolCallContext.builder().userId("user-1").tenantId("tenant-1").build())
+                .toCompletableFuture()
+                .join();
+
+        assertEquals("", result.content());
+        assertTrue(result.meta().isEmpty());
+        assertTrue(result.structuredContent().isEmpty());
+    }
+
+    @Test
+    void resultSanitizerFailureRecordsAuditAndPropagatesException() {
+        List<SafeAuditEvent> auditEvents = new ArrayList<>();
+        RuntimeException sanitizerFailure = new IllegalStateException("cannot sanitize");
+        SafeMcpTool tool = new SafeMcpTool("test", orderToolSpec(),
+                (serverName, rawToolName, rawArguments, context) -> CompletableFuture.completedFuture(
+                        RawToolResult.text("ok")),
+                SafeMcpPolicies.allow(),
+                auditEvents::add,
+                (context, request, rawResult) -> {
+                    throw sanitizerFailure;
+                });
+
+        CompletionException exception = assertThrows(CompletionException.class,
+                () -> tool.callAsync(
+                        Map.of("status", "paid"),
+                        SafeToolCallContext.builder().userId("user-1").tenantId("tenant-1").build())
+                        .toCompletableFuture()
+                        .join());
+
+        assertEquals(sanitizerFailure, exception.getCause());
+        assertEquals(1, auditEvents.size());
+        SafeAuditEvent event = auditEvents.get(0);
+        assertFalse(event.success());
+        assertEquals("RESULT_SANITIZER_FAILED", event.errorCode());
+        assertEquals("allow", event.policyDecision());
+    }
+
     private static SafeMcpToolSpec orderToolSpec() {
         return SafeMcpToolSpec.builder("orders", "getOrdersByUserId")
                 .name("get_my_orders")
@@ -208,6 +348,17 @@ class SafeMcpToolTest {
         ObjectNode properties = JsonNodeFactory.instance.objectNode();
         properties.set(propertyName, JsonNodeFactory.instance.objectNode().put("type", "string"));
         schema.set("properties", properties);
+        return schema;
+    }
+
+    private static ObjectNode schemaWithNestedProperty(String propertyName) {
+        ObjectNode schema = JsonNodeFactory.instance.objectNode();
+        schema.put("type", "object");
+        ObjectNode allOfItem = JsonNodeFactory.instance.objectNode();
+        ObjectNode properties = JsonNodeFactory.instance.objectNode();
+        properties.set(propertyName, JsonNodeFactory.instance.objectNode().put("type", "string"));
+        allOfItem.set("properties", properties);
+        schema.putArray("allOf").add(allOfItem);
         return schema;
     }
 

@@ -14,16 +14,33 @@ final class SafeInputSchemaGuard {
         if (inputSchema == null) {
             return;
         }
-        JsonNode properties = inputSchema.get("properties");
-        if (properties == null || !properties.isObject()) {
-            return;
-        }
         Set<String> protectedModelNames = new LinkedHashSet<>(injectedRawArguments);
         argumentMappings.forEach((virtualName, rawName) -> {
             if (injectedRawArguments.contains(rawName)) {
                 protectedModelNames.add(virtualName);
             }
         });
+        rejectProtectedProperties(inputSchema, protectedModelNames);
+    }
+
+    private static void rejectProtectedProperties(JsonNode node, Set<String> protectedModelNames) {
+        if (node == null) {
+            return;
+        }
+        if (node.isObject()) {
+            JsonNode properties = node.get("properties");
+            if (properties != null && properties.isObject()) {
+                rejectProtectedPropertyNames(properties, protectedModelNames);
+            }
+            node.fields().forEachRemaining(entry -> rejectProtectedProperties(entry.getValue(), protectedModelNames));
+            return;
+        }
+        if (node.isArray()) {
+            node.elements().forEachRemaining(element -> rejectProtectedProperties(element, protectedModelNames));
+        }
+    }
+
+    private static void rejectProtectedPropertyNames(JsonNode properties, Set<String> protectedModelNames) {
         for (String name : protectedModelNames) {
             if (properties.has(name)) {
                 throw new SafeMcpException("PROTECTED_ARGUMENT_IN_SCHEMA",

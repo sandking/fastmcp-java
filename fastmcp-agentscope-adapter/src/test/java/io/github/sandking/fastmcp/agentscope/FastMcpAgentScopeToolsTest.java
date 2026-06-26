@@ -16,6 +16,7 @@ import io.agentscope.core.tool.ToolCallParam;
 import io.agentscope.core.tool.Toolkit;
 import io.agentscope.core.tool.mcp.McpClientWrapper;
 import io.github.sandking.fastmcp.safe.SafeMcpException;
+import io.github.sandking.fastmcp.safe.SafeResultSanitizers;
 import io.github.sandking.fastmcp.safe.config.SafeMcpToolConfiguration;
 import io.modelcontextprotocol.spec.McpSchema;
 import java.util.List;
@@ -85,6 +86,54 @@ class FastMcpAgentScopeToolsTest {
     }
 
     @Test
+    void rejectsHandWrittenMappingSchemaThatExposesInjectedRawArgument() {
+        Toolkit toolkit = new Toolkit();
+        FastMcpToolMapping mapping = FastMcpToolMapping.builder("getOrdersByUserId")
+                .name("get_my_orders")
+                .description("Get orders for the authenticated user.")
+                .inputSchema(schemaWithProperty("userId"))
+                .injectArgument("userId", param -> "user-123")
+                .build();
+
+        SafeMcpException exception = assertThrows(SafeMcpException.class,
+                () -> FastMcpAgentScopeTools.register(toolkit, new RawOrderTool(), mapping));
+
+        assertEquals("PROTECTED_ARGUMENT_IN_SCHEMA", exception.code());
+    }
+
+    @Test
+    void rejectsHandWrittenMappingSchemaThatExposesInjectedVirtualArgument() {
+        Toolkit toolkit = new Toolkit();
+        FastMcpToolMapping mapping = FastMcpToolMapping.builder("getOrdersByUserId")
+                .name("get_my_orders")
+                .description("Get orders for the authenticated user.")
+                .inputSchema(schemaWithProperty("currentUser"))
+                .mapArgument("currentUser", "userId")
+                .injectArgument("userId", param -> "user-123")
+                .build();
+
+        SafeMcpException exception = assertThrows(SafeMcpException.class,
+                () -> FastMcpAgentScopeTools.register(toolkit, new RawOrderTool(), mapping));
+
+        assertEquals("PROTECTED_ARGUMENT_IN_SCHEMA", exception.code());
+    }
+
+    @Test
+    void rejectsFallbackRawSchemaThatExposesInjectedRawArgument() {
+        Toolkit toolkit = new Toolkit();
+        FastMcpToolMapping mapping = FastMcpToolMapping.builder("getOrdersByUserId")
+                .name("get_my_orders")
+                .description("Get orders for the authenticated user.")
+                .injectArgument("userId", param -> "user-123")
+                .build();
+
+        SafeMcpException exception = assertThrows(SafeMcpException.class,
+                () -> FastMcpAgentScopeTools.register(toolkit, new RawOrderTool(), mapping));
+
+        assertEquals("PROTECTED_ARGUMENT_IN_SCHEMA", exception.code());
+    }
+
+    @Test
     void exposesVirtualToolForRawAgentScopeMcpTool() {
         Toolkit toolkit = new Toolkit();
         FastMcpAgentScopeTools.register(toolkit, new RawMcpOrderTool(), FastMcpToolMapping
@@ -114,6 +163,53 @@ class FastMcpAgentScopeToolsTest {
         assertEquals("raw MCP orders for user-123 with status PAID",
                 ((TextBlock) result.getOutput().get(0)).getText());
         assertEquals("get_my_orders", result.getName());
+    }
+
+    @Test
+    void doesNotExposeRawResultMetadataByDefault() {
+        Toolkit toolkit = new Toolkit();
+        FastMcpAgentScopeTools.register(toolkit, new RawMetadataTool(), FastMcpToolMapping.builder("rawMetadata")
+                .name("safe_metadata")
+                .description("Safe metadata test.")
+                .inputSchema(virtualOrderSchema())
+                .injectArgument("userId", param -> "user-123")
+                .build());
+
+        ToolResultBlock result = toolkit.callTool(ToolCallParam.builder()
+                .toolUseBlock(ToolUseBlock.builder()
+                        .id("call-metadata")
+                        .name("safe_metadata")
+                        .input(Map.of("status", "PAID"))
+                        .content("{\"status\":\"PAID\"}")
+                        .build())
+                .input(Map.of("status", "PAID"))
+                .build()).block();
+
+        assertTrue(result.getMetadata().isEmpty());
+    }
+
+    @Test
+    void explicitPassThroughResultSanitizerPreservesRawResultMetadata() {
+        Toolkit toolkit = new Toolkit();
+        FastMcpAgentScopeTools.register(toolkit, new RawMetadataTool(), FastMcpToolMapping.builder("rawMetadata")
+                .name("safe_metadata")
+                .description("Safe metadata test.")
+                .inputSchema(virtualOrderSchema())
+                .injectArgument("userId", param -> "user-123")
+                .resultSanitizer(SafeResultSanitizers.passThrough())
+                .build());
+
+        ToolResultBlock result = toolkit.callTool(ToolCallParam.builder()
+                .toolUseBlock(ToolUseBlock.builder()
+                        .id("call-metadata-passthrough")
+                        .name("safe_metadata")
+                        .input(Map.of("status", "PAID"))
+                        .content("{\"status\":\"PAID\"}")
+                        .build())
+                .input(Map.of("status", "PAID"))
+                .build()).block();
+
+        assertEquals(Map.of("rawToolName", "rawMetadata", "userId", "user-123"), result.getMetadata());
     }
 
     @Test
@@ -156,6 +252,41 @@ class FastMcpAgentScopeToolsTest {
     }
 
     @Test
+    void failsWhenMcpClientListsDuplicateRawToolNames() {
+        Toolkit toolkit = new Toolkit();
+        DuplicateToolMcpClientWrapper wrapper = new DuplicateToolMcpClientWrapper("orders");
+
+        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
+                () -> FastMcpAgentScopeTools.registerMcpClient(toolkit, wrapper, List.of(FastMcpToolMapping
+                        .builder("getOrdersByUserId")
+                        .name("get_my_orders")
+                        .description("Get orders for the authenticated user.")
+                        .inputSchema(virtualOrderSchema())
+                        .injectArgument("userId", param -> "user-123")
+                        .build())).block());
+
+        assertEquals("Duplicate raw AgentScope MCP tool: orders/getOrdersByUserId", exception.getMessage());
+    }
+
+    @Test
+    void failsWhenMcpClientRawToolNameCollidesWithGeneratedNamespacedName() {
+        Toolkit toolkit = new Toolkit();
+        NamespacedCollisionMcpClientWrapper wrapper = new NamespacedCollisionMcpClientWrapper("orders");
+
+        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
+                () -> FastMcpAgentScopeTools.registerMcpClient(toolkit, wrapper, List.of(FastMcpToolMapping
+                        .builder("getOrdersByUserId")
+                        .name("get_my_orders")
+                        .description("Get orders for the authenticated user.")
+                        .inputSchema(virtualOrderSchema())
+                        .injectArgument("userId", param -> "user-123")
+                        .build())).block());
+
+        assertEquals("Duplicate raw AgentScope MCP tool: orders/mcp__orders__getOrdersByUserId",
+                exception.getMessage());
+    }
+
+    @Test
     void createsMappingFromSharedSafeToolConfiguration() {
         FastMcpToolMapping mapping = FastMcpToolMapping.from(currentUserOrdersToolConfig(),
                 Map.of("currentUserId", param -> param.getRuntimeContext().get(UserContext.class).userId()));
@@ -166,6 +297,7 @@ class FastMcpAgentScopeToolsTest {
         assertFalse(mapping.inputSchema().toString().contains("userId"));
         assertEquals(Map.of("status", "orderStatus"), mapping.argumentMappings());
         assertTrue(mapping.readOnly());
+        assertEquals(SafeResultSanitizers.modelSafe(), mapping.resultSanitizer());
 
         ToolCallParam param = ToolCallParam.builder()
                 .runtimeContext(RuntimeContext.builder()
@@ -203,6 +335,14 @@ class FastMcpAgentScopeToolsTest {
         status.put("type", "string");
         properties.set("status", status);
         schema.putArray("required").add("status");
+        return schema;
+    }
+
+    private ObjectNode schemaWithProperty(String propertyName) {
+        ObjectNode schema = JsonNodeFactory.instance.objectNode();
+        schema.put("type", "object");
+        ObjectNode properties = schema.putObject("properties");
+        properties.set(propertyName, JsonNodeFactory.instance.objectNode().put("type", "string"));
         return schema;
     }
 
@@ -269,7 +409,25 @@ class FastMcpAgentScopeToolsTest {
         }
     }
 
-    private static final class FakeMcpClientWrapper extends McpClientWrapper {
+    private static final class RawMetadataTool extends ToolBase {
+        private RawMetadataTool() {
+            super(ToolBase.builder()
+                    .name("rawMetadata")
+                    .description("Raw metadata tool")
+                    .inputSchema(Map.of(
+                            "type", "object",
+                            "properties", Map.of("status", Map.of("type", "string")))));
+        }
+
+        @Override
+        public Mono<ToolResultBlock> callAsync(ToolCallParam param) {
+            return Mono.just(ToolResultBlock.of(param.getToolUseBlock().getId(), getName(),
+                    List.of(TextBlock.builder().text("ok").build()),
+                    Map.of("rawToolName", getName(), "userId", param.getInput().get("userId"))));
+        }
+    }
+
+    private static class FakeMcpClientWrapper extends McpClientWrapper {
         private boolean initialized;
         private int listToolsCalls;
         private String lastToolName;
@@ -325,6 +483,40 @@ class FastMcpAgentScopeToolsTest {
 
         @Override
         public void close() {
+        }
+    }
+
+    private static final class DuplicateToolMcpClientWrapper extends FakeMcpClientWrapper {
+        private DuplicateToolMcpClientWrapper(String name) {
+            super(name);
+        }
+
+        @Override
+        public Mono<List<McpSchema.Tool>> listTools() {
+            return super.listTools().map(tools -> List.of(tools.get(0), tools.get(0)));
+        }
+    }
+
+    private static final class NamespacedCollisionMcpClientWrapper extends FakeMcpClientWrapper {
+        private NamespacedCollisionMcpClientWrapper(String name) {
+            super(name);
+        }
+
+        @Override
+        public Mono<List<McpSchema.Tool>> listTools() {
+            return super.listTools().map(tools -> List.of(tools.get(0), McpSchema.Tool.builder()
+                    .name("mcp__orders__getOrdersByUserId")
+                    .description("Raw MCP order lookup by user id")
+                    .inputSchema(new McpSchema.JsonSchema(
+                            "object",
+                            Map.of(
+                                    "userId", Map.of("type", "string"),
+                                    "status", Map.of("type", "string")),
+                            List.of("userId", "status"),
+                            false,
+                            null,
+                            null))
+                    .build()));
         }
     }
 }

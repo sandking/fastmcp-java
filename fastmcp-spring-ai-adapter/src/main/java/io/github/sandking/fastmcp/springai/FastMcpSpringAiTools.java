@@ -5,8 +5,10 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.sandking.fastmcp.safe.RawToolResult;
+import io.github.sandking.fastmcp.safe.SafeAuditSink;
 import io.github.sandking.fastmcp.safe.SafeMcpException;
 import io.github.sandking.fastmcp.safe.SafeMcpTool;
+import io.github.sandking.fastmcp.safe.SafeMcpPolicies;
 import io.github.sandking.fastmcp.safe.SafeMcpToolSpec;
 import io.github.sandking.fastmcp.safe.SafeToolCallContext;
 import io.github.sandking.fastmcp.safe.SafeToolResult;
@@ -61,8 +63,8 @@ public final class FastMcpSpringAiTools {
         for (ToolCallback rawCallback : rawCallbacks) {
             Objects.requireNonNull(rawCallback, "rawCallback must not be null");
             String rawServerName = originalServerName(rawCallback).orElse(defaultRawServerName);
-            rawTools.put(rawKey(rawServerName, rawCallback.getToolDefinition().name()), rawCallback);
-            originalToolName(rawCallback).ifPresent(name -> rawTools.put(rawKey(rawServerName, name), rawCallback));
+            putRawTool(rawTools, rawServerName, rawCallback.getToolDefinition().name(), rawCallback);
+            originalToolName(rawCallback).ifPresent(name -> putRawTool(rawTools, rawServerName, name, rawCallback));
         }
 
         List<ToolCallback> safeCallbacks = new ArrayList<>();
@@ -104,6 +106,15 @@ public final class FastMcpSpringAiTools {
                 + SpringAiMcpToolMapping.requireText(rawToolName, "rawToolName");
     }
 
+    private static void putRawTool(Map<String, ToolCallback> rawTools, String rawServerName, String rawToolName,
+            ToolCallback rawCallback) {
+        String key = rawKey(rawServerName, rawToolName);
+        ToolCallback previous = rawTools.putIfAbsent(key, rawCallback);
+        if (previous != null && previous != rawCallback) {
+            throw new IllegalArgumentException("Duplicate raw Spring AI tool: " + rawServerName + "/" + rawToolName);
+        }
+    }
+
     private static final class SafeSpringAiToolCallback implements ToolCallback {
         private final ToolCallback rawCallback;
         private final ToolDefinition toolDefinition;
@@ -115,7 +126,10 @@ public final class FastMcpSpringAiTools {
                     inputSchema(mapping));
             this.safeTool = new SafeMcpTool("spring-ai", toSafeSpec(rawCallback, mapping),
                     (serverName, rawToolName, rawArguments, context) -> CompletableFuture.completedFuture(
-                            RawToolResult.text(rawCallback.call(toJson(rawArguments), toolContext(context)))));
+                            RawToolResult.text(rawCallback.call(toJson(rawArguments), toolContext(context)))),
+                    SafeMcpPolicies.allow(),
+                    SafeAuditSink.noOp(),
+                    mapping.resultSanitizer());
         }
 
         @Override

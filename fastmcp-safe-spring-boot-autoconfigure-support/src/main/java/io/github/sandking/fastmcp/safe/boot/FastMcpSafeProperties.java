@@ -10,6 +10,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 @ConfigurationProperties(prefix = "fastmcp.safe")
 public class FastMcpSafeProperties {
     private boolean enabled = true;
+    private Diagnostics diagnostics = new Diagnostics();
     private Map<String, Server> servers = new LinkedHashMap<>();
 
     public boolean isEnabled() {
@@ -18,6 +19,14 @@ public class FastMcpSafeProperties {
 
     public void setEnabled(boolean enabled) {
         this.enabled = enabled;
+    }
+
+    public Diagnostics getDiagnostics() {
+        return diagnostics;
+    }
+
+    public void setDiagnostics(Diagnostics diagnostics) {
+        this.diagnostics = diagnostics == null ? new Diagnostics() : diagnostics;
     }
 
     public Map<String, Server> getServers() {
@@ -150,6 +159,18 @@ public class FastMcpSafeProperties {
 
     private static boolean hasText(String value) {
         return value != null && !value.trim().isEmpty();
+    }
+
+    public static class Diagnostics {
+        private String externalRawProvider = "warn";
+
+        public String getExternalRawProvider() {
+            return externalRawProvider;
+        }
+
+        public void setExternalRawProvider(String externalRawProvider) {
+            this.externalRawProvider = externalRawProvider == null ? "warn" : externalRawProvider;
+        }
     }
 
     public static class Http {
