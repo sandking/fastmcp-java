@@ -45,6 +45,13 @@ public final class FastMcpSpringAiTools {
         return wrap(List.of(rawProvider.getToolCallbacks()), mappings);
     }
 
+    public static ToolCallbackProvider wrap(ToolCallbackProvider rawProvider, List<SpringAiMcpToolMapping> mappings,
+            SafeAuditSink auditSink) {
+        Objects.requireNonNull(rawProvider, "rawProvider must not be null");
+        return wrap(SpringAiMcpToolMapping.DEFAULT_RAW_SERVER_NAME, List.of(rawProvider.getToolCallbacks()), mappings,
+                auditSink);
+    }
+
     public static ToolCallbackProvider wrap(ToolCallback[] rawCallbacks, SpringAiMcpToolMapping... mappings) {
         return wrap(List.of(rawCallbacks), List.of(mappings));
     }
@@ -55,9 +62,15 @@ public final class FastMcpSpringAiTools {
 
     public static ToolCallbackProvider wrap(String defaultRawServerName, List<ToolCallback> rawCallbacks,
             List<SpringAiMcpToolMapping> mappings) {
+        return wrap(defaultRawServerName, rawCallbacks, mappings, SafeAuditSink.noOp());
+    }
+
+    public static ToolCallbackProvider wrap(String defaultRawServerName, List<ToolCallback> rawCallbacks,
+            List<SpringAiMcpToolMapping> mappings, SafeAuditSink auditSink) {
         SpringAiMcpToolMapping.requireText(defaultRawServerName, "defaultRawServerName");
         Objects.requireNonNull(rawCallbacks, "rawCallbacks must not be null");
         Objects.requireNonNull(mappings, "mappings must not be null");
+        Objects.requireNonNull(auditSink, "auditSink must not be null");
 
         Map<String, ToolCallback> rawTools = new LinkedHashMap<>();
         for (ToolCallback rawCallback : rawCallbacks) {
@@ -75,7 +88,7 @@ public final class FastMcpSpringAiTools {
                 throw new IllegalArgumentException("Raw Spring AI tool not found: "
                         + safeMapping.rawServerName() + "/" + safeMapping.rawName());
             }
-            safeCallbacks.add(new SafeSpringAiToolCallback(rawCallback, safeMapping));
+            safeCallbacks.add(new SafeSpringAiToolCallback(rawCallback, safeMapping, auditSink));
         }
         return ToolCallbackProvider.from(safeCallbacks);
     }
@@ -120,7 +133,8 @@ public final class FastMcpSpringAiTools {
         private final ToolDefinition toolDefinition;
         private final SafeMcpTool safeTool;
 
-        private SafeSpringAiToolCallback(ToolCallback rawCallback, SpringAiMcpToolMapping mapping) {
+        private SafeSpringAiToolCallback(ToolCallback rawCallback, SpringAiMcpToolMapping mapping,
+                SafeAuditSink auditSink) {
             this.rawCallback = rawCallback;
             this.toolDefinition = new DefaultToolDefinition(mapping.name(), description(mapping),
                     inputSchema(mapping));
@@ -128,7 +142,7 @@ public final class FastMcpSpringAiTools {
                     (serverName, rawToolName, rawArguments, context) -> CompletableFuture.completedFuture(
                             RawToolResult.text(rawCallback.call(toJson(rawArguments), toolContext(context)))),
                     SafeMcpPolicies.allow(),
-                    SafeAuditSink.noOp(),
+                    auditSink,
                     mapping.resultSanitizer());
         }
 

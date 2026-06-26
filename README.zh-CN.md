@@ -186,6 +186,21 @@ fastmcp:
       external-raw-provider: fail # warn | fail | off
 ```
 
+Spring AI 和 AgentScope Boot starter 都会消费可选的 `SafeAuditSink` bean。安全
+tool call 会记录为 `TOOL_CALL` audit event，包含 framework、virtual tool name、
+raw server/tool name、运行时上下文中的 caller/tenant 标识，以及 injected argument
+names。FastMCP 不会把 injected argument values 写入 sink。Spring AI 外部 raw
+provider diagnostics 也会记录为 `DIAGNOSTIC` event，错误码为
+`EXTERNAL_RAW_PROVIDER_PRESENT`。
+
+```java
+@Bean
+SafeAuditSink fastMcpAuditSink() {
+    return event -> logger.info("fastmcp audit type={} framework={} virtualTool={} error={}",
+            event.eventType(), event.framework(), event.virtualToolName(), event.errorCode());
+}
+```
+
 如果走外部 raw provider 兼容路径，可以设置
 `fastmcp.safe.servers.<server>.enabled=false` 跳过 managed client 创建，同时继续用
 配置里的 tool mappings 包装外部 provider。

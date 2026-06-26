@@ -4,10 +4,12 @@ import io.agentscope.core.tool.Toolkit;
 import io.agentscope.core.tool.mcp.McpClientWrapper;
 import io.github.sandking.fastmcp.agentscope.FastMcpAgentScopeTools;
 import io.github.sandking.fastmcp.agentscope.ToolArgumentResolver;
+import io.github.sandking.fastmcp.safe.SafeAuditSink;
 import io.github.sandking.fastmcp.safe.boot.FastMcpSafeConfigurationFactory;
 import io.github.sandking.fastmcp.safe.boot.FastMcpSafeProperties;
 import io.github.sandking.fastmcp.safe.config.SafeMcpConfiguration;
 import java.util.Map;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
@@ -39,7 +41,9 @@ public class FastMcpAgentScopeSafeAutoConfiguration {
     FastMcpAgentScopeSafeRegistrar fastMcpAgentScopeSafeRegistrar(Toolkit toolkit,
             SafeMcpConfiguration configuration,
             FastMcpAgentScopeManagedClientFactory managedClientFactory,
+            ObjectProvider<SafeAuditSink> auditSink,
             Map<String, ToolArgumentResolver> resolvers) {
-        return new FastMcpAgentScopeSafeRegistrar(toolkit, configuration, managedClientFactory, resolvers);
+        return new FastMcpAgentScopeSafeRegistrar(toolkit, configuration, managedClientFactory,
+                auditSink.getIfAvailable(SafeAuditSink::noOp), resolvers);
     }
 }

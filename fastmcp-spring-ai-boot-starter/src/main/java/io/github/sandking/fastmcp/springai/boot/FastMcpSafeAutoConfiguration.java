@@ -1,5 +1,7 @@
 package io.github.sandking.fastmcp.springai.boot;
 
+import io.github.sandking.fastmcp.safe.SafeAuditEvent;
+import io.github.sandking.fastmcp.safe.SafeAuditSink;
 import io.github.sandking.fastmcp.safe.boot.FastMcpSafeConfigurationFactory;
 import io.github.sandking.fastmcp.safe.boot.FastMcpSafeProperties;
 import io.github.sandking.fastmcp.safe.config.SafeMcpConfiguration;
@@ -20,6 +22,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.ai.tool.ToolCallbackProvider;
 import org.springframework.beans.factory.ListableBeanFactory;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
@@ -60,11 +63,13 @@ public class FastMcpSafeAutoConfiguration {
             ListableBeanFactory beanFactory,
             FastMcpSpringAiManagedClientFactory managedClientFactory,
             FastMcpSafeProperties properties,
+            ObjectProvider<SafeAuditSink> auditSinkProvider,
             Map<String, SpringAiToolArgumentResolver> resolvers) {
+        SafeAuditSink auditSink = auditSinkProvider.getIfAvailable(SafeAuditSink::noOp);
         String externalRawProviderDiagnosticsMode =
                 normalizeExternalRawProviderDiagnosticsMode(properties.getDiagnostics().getExternalRawProvider());
         List<String> externalRawProviderNames = externalRawToolCallbackProviderNames(beanFactory);
-        diagnoseExternalRawProviders(externalRawProviderDiagnosticsMode, externalRawProviderNames);
+        diagnoseExternalRawProviders(externalRawProviderDiagnosticsMode, externalRawProviderNames, auditSink);
 
         List<FastMcpSpringAiManagedClientFactory.ManagedMcpClient> managedClients =
                 managedClientFactory.createClients(configuration);
@@ -91,7 +96,8 @@ public class FastMcpSafeAutoConfiguration {
                         .map(tool -> SpringAiMcpToolMapping.from(server.name(), tool, resolvers))
                         .collect(Collectors.toList());
                 safeCallbacks.addAll(Arrays.asList(
-                        FastMcpSpringAiTools.wrap(server.name(), rawCallbacks, mappings).getToolCallbacks()));
+                        FastMcpSpringAiTools.wrap(server.name(), rawCallbacks, mappings, auditSink)
+                                .getToolCallbacks()));
             }
             ToolCallbackProvider safeProvider = ToolCallbackProvider.from(safeCallbacks);
             List<McpSyncClient> clients = managedClients.stream()
@@ -132,11 +138,16 @@ public class FastMcpSafeAutoConfiguration {
         return normalizedMode;
     }
 
-    private void diagnoseExternalRawProviders(String mode, List<String> externalRawProviderNames) {
+    private void diagnoseExternalRawProviders(String mode, List<String> externalRawProviderNames,
+            SafeAuditSink auditSink) {
         if (externalRawProviderNames.isEmpty() || "off".equals(mode)) {
             return;
         }
         String message = String.format(EXTERNAL_RAW_PROVIDER_MESSAGE, externalRawProviderNames);
+        auditSink.record(SafeAuditEvent.diagnostic("spring-ai",
+                "EXTERNAL_RAW_PROVIDER_PRESENT",
+                "fastMcpSafeToolCallbackProvider",
+                Map.of("providerNames", String.join(",", externalRawProviderNames), "mode", mode)));
         if ("fail".equals(mode)) {
             throw new IllegalStateException(message);
         }

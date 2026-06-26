@@ -5,6 +5,7 @@ import io.agentscope.core.tool.mcp.McpClientWrapper;
 import io.github.sandking.fastmcp.agentscope.FastMcpAgentScopeTools;
 import io.github.sandking.fastmcp.agentscope.FastMcpToolMapping;
 import io.github.sandking.fastmcp.agentscope.ToolArgumentResolver;
+import io.github.sandking.fastmcp.safe.SafeAuditSink;
 import io.github.sandking.fastmcp.safe.config.SafeMcpConfiguration;
 import io.github.sandking.fastmcp.safe.config.SafeMcpServerConfiguration;
 import java.util.ArrayList;
@@ -15,16 +16,23 @@ import java.util.stream.Collectors;
 
 class FastMcpAgentScopeSafeRegistrar implements AutoCloseable {
     private final List<McpClientWrapper> managedClients;
+    private final SafeAuditSink auditSink;
 
     FastMcpAgentScopeSafeRegistrar(List<McpClientWrapper> managedClients) {
+        this(managedClients, SafeAuditSink.noOp());
+    }
+
+    private FastMcpAgentScopeSafeRegistrar(List<McpClientWrapper> managedClients, SafeAuditSink auditSink) {
         this.managedClients = new ArrayList<>(managedClients);
+        this.auditSink = auditSink == null ? SafeAuditSink.noOp() : auditSink;
     }
 
     FastMcpAgentScopeSafeRegistrar(Toolkit toolkit,
             SafeMcpConfiguration configuration,
             FastMcpAgentScopeManagedClientFactory managedClientFactory,
+            SafeAuditSink auditSink,
             Map<String, ToolArgumentResolver> resolvers) {
-        this(managedClientFactory.createClients(configuration));
+        this(managedClientFactory.createClients(configuration), auditSink);
         try {
             registerManagedClients(toolkit, configuration, resolvers);
         } catch (RuntimeException | Error exception) {
@@ -49,7 +57,7 @@ class FastMcpAgentScopeSafeRegistrar implements AutoCloseable {
             List<FastMcpToolMapping> mappings = server.tools().values().stream()
                     .map(tool -> FastMcpToolMapping.from(tool, resolvers))
                     .collect(Collectors.toList());
-            FastMcpAgentScopeTools.registerMcpClient(toolkit, client, mappings).block();
+            FastMcpAgentScopeTools.registerMcpClient(toolkit, client, mappings, auditSink).block();
         }
     }
 

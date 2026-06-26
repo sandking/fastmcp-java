@@ -19,6 +19,23 @@ import org.junit.jupiter.api.Test;
 
 class SafeMcpToolTest {
     @Test
+    void buildsDiagnosticAuditEvents() {
+        SafeAuditEvent event = SafeAuditEvent.diagnostic("spring-ai",
+                "EXTERNAL_RAW_PROVIDER_PRESENT",
+                "fastMcpSafeToolCallbackProvider",
+                Map.of("providerNames", "rawOrderToolProvider"));
+
+        assertEquals("DIAGNOSTIC", event.eventType());
+        assertEquals("spring-ai", event.framework());
+        assertEquals("fastMcpSafeToolCallbackProvider", event.virtualToolName());
+        assertFalse(event.success());
+        assertEquals("EXTERNAL_RAW_PROVIDER_PRESENT", event.errorCode());
+        assertEquals(Map.of("providerNames", "rawOrderToolProvider"), event.details());
+        assertThrows(UnsupportedOperationException.class,
+                () -> event.details().put("providerNames", "otherProvider"));
+    }
+
+    @Test
     void mapsVirtualArgumentsAndInjectsProtectedArguments() {
         AtomicReference<Map<String, Object>> capturedRawArguments = new AtomicReference<>();
         List<SafeAuditEvent> auditEvents = new ArrayList<>();

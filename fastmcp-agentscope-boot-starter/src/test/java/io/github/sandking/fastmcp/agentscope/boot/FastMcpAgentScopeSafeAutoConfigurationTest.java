@@ -10,9 +10,12 @@ import io.agentscope.core.tool.ToolCallParam;
 import io.agentscope.core.tool.Toolkit;
 import io.agentscope.core.tool.mcp.McpClientWrapper;
 import io.github.sandking.fastmcp.agentscope.ToolArgumentResolver;
+import io.github.sandking.fastmcp.safe.SafeAuditEvent;
+import io.github.sandking.fastmcp.safe.SafeAuditSink;
 import io.github.sandking.fastmcp.safe.config.SafeMcpConfiguration;
 import io.github.sandking.fastmcp.safe.config.SafeMcpToolConfiguration;
 import io.modelcontextprotocol.spec.McpSchema;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
@@ -25,6 +28,7 @@ import reactor.core.publisher.Mono;
 
 class FastMcpAgentScopeSafeAutoConfigurationTest {
     private static final AtomicReference<FakeMcpClientWrapper> FAILING_MANAGED_CLIENT = new AtomicReference<>();
+    private static final List<SafeAuditEvent> AUDIT_EVENTS = new ArrayList<>();
 
     private final ApplicationContextRunner contextRunner = new ApplicationContextRunner()
             .withConfiguration(AutoConfigurations.of(FastMcpAgentScopeSafeAutoConfiguration.class))
@@ -94,6 +98,39 @@ class FastMcpAgentScopeSafeAutoConfigurationTest {
             assertThat(((TextBlock) result.getOutput().get(0)).getText())
                     .isEqualTo("mcp orders for user-123 with status PAID");
         });
+    }
+
+    @Test
+    void recordsSafeToolCallsWithConfiguredAuditSink() {
+        AUDIT_EVENTS.clear();
+
+        contextRunner.withUserConfiguration(ManagedClientConfiguration.class, AuditSinkConfiguration.class)
+                .run(context -> {
+                    Toolkit toolkit = context.getBean(Toolkit.class);
+
+                    toolkit.callTool(ToolCallParam.builder()
+                            .toolUseBlock(ToolUseBlock.builder()
+                                    .id("call-1")
+                                    .name("get_my_orders")
+                                    .input(Map.of("status", "PAID"))
+                                    .content("{\"status\":\"PAID\"}")
+                                    .build())
+                            .input(Map.of("status", "PAID"))
+                            .runtimeContext(RuntimeContext.builder()
+                                    .put(UserContext.class, new UserContext("user-123"))
+                                    .build())
+                            .build()).block();
+
+                    assertThat(AUDIT_EVENTS).hasSize(1);
+                    SafeAuditEvent event = AUDIT_EVENTS.get(0);
+                    assertThat(event.eventType()).isEqualTo("TOOL_CALL");
+                    assertThat(event.framework()).isEqualTo("agentscope");
+                    assertThat(event.virtualToolName()).isEqualTo("get_my_orders");
+                    assertThat(event.rawServerName()).isEqualTo("orders");
+                    assertThat(event.rawToolName()).isEqualTo("getOrdersByUserId");
+                    assertThat(event.injectedArgumentNames()).containsExactly("userId");
+                    assertThat(event.success()).isTrue();
+                });
     }
 
     @Test
@@ -174,6 +211,14 @@ class FastMcpAgentScopeSafeAutoConfigurationTest {
         @Bean("fastMcpAgentScopeSafeRegistrar")
         FastMcpAgentScopeSafeRegistrar fastMcpAgentScopeSafeRegistrar() {
             return new FastMcpAgentScopeSafeRegistrar(List.of());
+        }
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    static class AuditSinkConfiguration {
+        @Bean
+        SafeAuditSink safeAuditSink() {
+            return AUDIT_EVENTS::add;
         }
     }
 

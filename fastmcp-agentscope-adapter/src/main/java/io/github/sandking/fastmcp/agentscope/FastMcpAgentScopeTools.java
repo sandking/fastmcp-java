@@ -39,13 +39,18 @@ public final class FastMcpAgentScopeTools {
     }
 
     public static void register(Toolkit toolkit, AgentTool rawTool, FastMcpToolMapping mapping) {
+        register(toolkit, rawTool, mapping, SafeAuditSink.noOp());
+    }
+
+    public static void register(Toolkit toolkit, AgentTool rawTool, FastMcpToolMapping mapping,
+            SafeAuditSink auditSink) {
         Objects.requireNonNull(toolkit, "toolkit must not be null");
         Objects.requireNonNull(rawTool, "rawTool must not be null");
         Objects.requireNonNull(mapping, "mapping must not be null");
         if (!rawTool.getName().equals(mapping.rawName())) {
             throw new IllegalArgumentException("Raw AgentScope tool name does not match mapping: " + mapping.rawName());
         }
-        toolkit.registerAgentTool(new AgentScopeToolAdapter(rawTool, mapping));
+        toolkit.registerAgentTool(new AgentScopeToolAdapter(rawTool, mapping, auditSink));
     }
 
     public static Mono<Void> registerMcpClient(
@@ -55,13 +60,19 @@ public final class FastMcpAgentScopeTools {
 
     public static Mono<Void> registerMcpClient(
             Toolkit toolkit, McpClientWrapper client, List<FastMcpToolMapping> mappings) {
+        return registerMcpClient(toolkit, client, mappings, SafeAuditSink.noOp());
+    }
+
+    public static Mono<Void> registerMcpClient(
+            Toolkit toolkit, McpClientWrapper client, List<FastMcpToolMapping> mappings, SafeAuditSink auditSink) {
         Objects.requireNonNull(toolkit, "toolkit must not be null");
         Objects.requireNonNull(client, "client must not be null");
         Objects.requireNonNull(mappings, "mappings must not be null");
+        Objects.requireNonNull(auditSink, "auditSink must not be null");
 
         return client.initialize()
                 .then(Mono.defer(client::listTools))
-                .doOnNext(tools -> registerMappedMcpTools(toolkit, client, tools, mappings))
+                .doOnNext(tools -> registerMappedMcpTools(toolkit, client, tools, mappings, auditSink))
                 .then();
     }
 
@@ -69,11 +80,12 @@ public final class FastMcpAgentScopeTools {
         private final AgentTool rawTool;
         private final SafeMcpTool safeTool;
 
-        private AgentScopeToolAdapter(AgentTool rawTool, FastMcpToolMapping mapping) {
-            this(rawTool, mapping, rawServerName(rawTool));
+        private AgentScopeToolAdapter(AgentTool rawTool, FastMcpToolMapping mapping, SafeAuditSink auditSink) {
+            this(rawTool, mapping, rawServerName(rawTool), auditSink);
         }
 
-        private AgentScopeToolAdapter(AgentTool rawTool, FastMcpToolMapping mapping, String rawServerName) {
+        private AgentScopeToolAdapter(AgentTool rawTool, FastMcpToolMapping mapping, String rawServerName,
+                SafeAuditSink auditSink) {
             super(ToolBase.builder()
                     .name(mapping.name())
                     .description(description(rawTool, mapping))
@@ -90,7 +102,7 @@ public final class FastMcpAgentScopeTools {
                             .map(FastMcpAgentScopeTools::toRawToolResult)
                             .toFuture(),
                     SafeMcpPolicies.allow(),
-                    SafeAuditSink.noOp(),
+                    auditSink,
                     mapping.resultSanitizer());
         }
 
@@ -124,7 +136,8 @@ public final class FastMcpAgentScopeTools {
             Toolkit toolkit,
             McpClientWrapper client,
             List<McpSchema.Tool> tools,
-            List<FastMcpToolMapping> mappings) {
+            List<FastMcpToolMapping> mappings,
+            SafeAuditSink auditSink) {
         Map<String, McpSchema.Tool> rawTools = new LinkedHashMap<>();
         for (McpSchema.Tool tool : tools) {
             putRawMcpTool(rawTools, client.getName(), tool.name(), tool);
@@ -136,7 +149,8 @@ public final class FastMcpAgentScopeTools {
             if (rawTool == null) {
                 throw new IllegalArgumentException("Raw MCP tool not found: " + mapping.rawName());
             }
-            toolkit.registerAgentTool(new AgentScopeToolAdapter(toMcpTool(client, rawTool), mapping, client.getName()));
+            toolkit.registerAgentTool(new AgentScopeToolAdapter(toMcpTool(client, rawTool), mapping, client.getName(),
+                    auditSink));
         }
     }
 

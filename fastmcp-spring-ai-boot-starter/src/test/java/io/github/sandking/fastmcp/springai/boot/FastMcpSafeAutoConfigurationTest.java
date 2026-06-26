@@ -6,10 +6,13 @@ import static org.mockito.Mockito.verify;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.github.sandking.fastmcp.safe.SafeAuditEvent;
+import io.github.sandking.fastmcp.safe.SafeAuditSink;
 import io.github.sandking.fastmcp.safe.config.SafeMcpConfiguration;
 import io.github.sandking.fastmcp.safe.config.SafeMcpToolConfiguration;
 import io.github.sandking.fastmcp.springai.SpringAiToolArgumentResolver;
 import io.modelcontextprotocol.client.McpSyncClient;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
@@ -36,6 +39,7 @@ class FastMcpSafeAutoConfigurationTest {
     };
     private static final AtomicReference<McpSyncClient> FAILING_MANAGED_CLIENT = new AtomicReference<>();
     private static final AtomicInteger FAIL_FAST_CREATE_CLIENTS_CALLS = new AtomicInteger();
+    private static final List<SafeAuditEvent> AUDIT_EVENTS = new ArrayList<>();
 
     private final ApplicationContextRunner contextRunner = new ApplicationContextRunner()
             .withConfiguration(AutoConfigurations.of(FastMcpSafeAutoConfiguration.class))
@@ -89,6 +93,53 @@ class FastMcpSafeAutoConfigurationTest {
             assertThat(rawTool.lastInput()).containsEntry("orderStatus", "PAID")
                     .containsEntry("userId", "user-123");
         });
+    }
+
+    @Test
+    void recordsSafeToolCallsWithConfiguredAuditSink() {
+        AUDIT_EVENTS.clear();
+
+        contextRunner.withUserConfiguration(RawToolConfiguration.class, AuditSinkConfiguration.class)
+                .withPropertyValues("fastmcp.safe.diagnostics.external-raw-provider=off")
+                .run(context -> {
+                    ToolCallbackProvider safeProvider = context.getBean("fastMcpSafeToolCallbackProvider",
+                            ToolCallbackProvider.class);
+                    ToolCallback safeTool = safeProvider.getToolCallbacks()[0];
+
+                    safeTool.call("{\"status\":\"PAID\"}", new ToolContext(Map.of("userId", "user-123")));
+
+                    assertThat(AUDIT_EVENTS).hasSize(1);
+                    SafeAuditEvent event = AUDIT_EVENTS.get(0);
+                    assertThat(event.eventType()).isEqualTo("TOOL_CALL");
+                    assertThat(event.framework()).isEqualTo("spring-ai");
+                    assertThat(event.virtualToolName()).isEqualTo("get_my_orders");
+                    assertThat(event.rawServerName()).isEqualTo("orders");
+                    assertThat(event.rawToolName()).isEqualTo("getOrdersByUserId");
+                    assertThat(event.callerId()).isEqualTo("user-123");
+                    assertThat(event.injectedArgumentNames()).containsExactly("userId");
+                    assertThat(event.success()).isTrue();
+                });
+    }
+
+    @Test
+    void recordsExternalRawProviderDiagnosticsWithConfiguredAuditSink() {
+        AUDIT_EVENTS.clear();
+
+        contextRunner.withUserConfiguration(RawToolConfiguration.class, AuditSinkConfiguration.class)
+                .run(context -> {
+                    assertThat(context).hasNotFailed();
+                    assertThat(context).hasBean("fastMcpSafeToolCallbackProvider");
+                });
+
+        assertThat(AUDIT_EVENTS).hasSize(1);
+        SafeAuditEvent event = AUDIT_EVENTS.get(0);
+        assertThat(event.eventType()).isEqualTo("DIAGNOSTIC");
+        assertThat(event.framework()).isEqualTo("spring-ai");
+        assertThat(event.virtualToolName()).isEqualTo("fastMcpSafeToolCallbackProvider");
+        assertThat(event.success()).isFalse();
+        assertThat(event.errorCode()).isEqualTo("EXTERNAL_RAW_PROVIDER_PRESENT");
+        assertThat(event.details()).containsEntry("providerNames", "rawOrderToolProvider")
+                .containsEntry("mode", "warn");
     }
 
     @Test
@@ -382,6 +433,14 @@ class FastMcpSafeAutoConfigurationTest {
         @Bean("currentUserId")
         SpringAiToolArgumentResolver currentUserId() {
             return context -> context.getContext().get("userId");
+        }
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    static class AuditSinkConfiguration {
+        @Bean
+        SafeAuditSink safeAuditSink() {
+            return AUDIT_EVENTS::add;
         }
     }
 

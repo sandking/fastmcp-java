@@ -20,7 +20,7 @@ Always respond in Chinese-simplified
 - 当前仓库的主目标已调整为 Safe MCP Registration：安全地把 MCP raw tools 注册到 Java Agent 框架中，默认只让 LLM 看到 virtual tools。
 - 最关键的工程边界：目标不是做完整 FastMCP server/client 框架，而是让本库成为多个 Java Agent 框架上的安全 MCP 注册入口，确保 LLM 只看到 virtual tools。
 - MCP client、transport、protocol lifecycle、resources、prompts、stream 等协议能力优先复用目标框架或其底层官方 SDK，例如 Spring AI / MCP Java SDK、AgentScope Java。只有为了让安全注册入口可用且框架缺少必要 glue 时，才允许在 starter 内增加最小兼容代码；这类代码必须保持 package-private、测试覆盖清楚、不得扩展成通用 MCP client/server API。
-- 当前仓库已经实现第一版 Spring AI adapter、AgentScope adapter、framework-neutral safe config model、中性的 Spring Boot `fastmcp.safe.*` 绑定支持、Spring AI Boot 基于已有 raw `ToolCallbackProvider` 的安全 provider 包装、Spring AI Boot 基于 `fastmcp.safe.*` 创建 managed MCP clients 的第一版能力，以及 AgentScope Boot 基于 `fastmcp.safe.*` 创建 managed `McpClientWrapper` 并向 `Toolkit` 注册 virtual tools 的第一版能力。managed client 当前支持 `streamable-http`、`sse` 和兼容用的 `stdio`，支持通过 `fastmcp.safe.*` 透传 HTTP headers、query params 和 cookie 开关，会在 starter 内部创建 raw MCP client/callback 并只公开安全注册结果。还没有实现本库自己的 MCP server implementation、AG-UI SSE / tool event 链路验证、resources、prompts、完整 authentication、OAuth、secret resolver / secret lifecycle、production middleware、protocol conformance tests。不要在文档或汇报里暗示这些未验证或未实现能力已经具备。
+- 当前仓库已经实现第一版 Spring AI adapter、AgentScope adapter、framework-neutral safe config model、中性的 Spring Boot `fastmcp.safe.*` 绑定支持、Spring AI Boot 基于已有 raw `ToolCallbackProvider` 的安全 provider 包装、Spring AI Boot 基于 `fastmcp.safe.*` 创建 managed MCP clients 的第一版能力，以及 AgentScope Boot 基于 `fastmcp.safe.*` 创建 managed `McpClientWrapper` 并向 `Toolkit` 注册 virtual tools 的第一版能力。managed client 当前支持 `streamable-http`、`sse` 和兼容用的 `stdio`，支持通过 `fastmcp.safe.*` 透传 HTTP headers、query params 和 cookie 开关，会在 starter 内部创建 raw MCP client/callback 并只公开安全注册结果。Spring AI 和 AgentScope Boot starter 会消费可选的 `SafeAuditSink` bean，把 safe tool call 记录为 `TOOL_CALL` audit event；Spring AI 外部 raw provider diagnostics 也会记录为 `DIAGNOSTIC` event。还没有实现本库自己的 MCP server implementation、AG-UI SSE / tool event 链路验证、resources、prompts、完整 authentication、OAuth、secret resolver / secret lifecycle、production middleware、protocol conformance tests。不要在文档或汇报里暗示这些未验证或未实现能力已经具备。
 
 ## 2. 模块职责边界
 
@@ -61,6 +61,7 @@ Always respond in Chinese-simplified
   - `http.headers` 和 `http.query-params` 只作为 MCP client HTTP 连接配置透传给 AgentScope builder，不属于模型可见 metadata；如有敏感值，使用 Spring Boot 占位符或部署环境注入，本库不提供 secret resolver
   - `http.cookies.enabled` 默认是 `true`，用于 streamable-http / SSE 的会话粘性；关闭前必须确认目标 MCP server 不依赖 cookie session
   - auto-configuration 创建的 managed raw `McpClientWrapper` 不作为 Spring bean 暴露；它只把 mapped virtual tools 注册进应用提供的 `Toolkit`
+  - 如果应用提供 `SafeAuditSink` bean，starter 会把 safe tool call 记录为 `TOOL_CALL` audit event，只记录 injected argument names，不记录 injected values
   - 如果应用自己调用 `toolkit.registerMcpClient(client)`，仍然会绕过本库安全入口
 - 修改 adapter 时必须保留并强化以下行为：
   - 模型只能看到 virtual tool
@@ -94,6 +95,7 @@ Always respond in Chinese-simplified
   - `http.cookies.enabled` 默认是 `true`，用于 streamable-http / SSE 的会话粘性；关闭前必须确认目标 MCP server 不依赖 cookie session
   - auto-configuration 创建的 managed raw provider 不作为 Spring bean 暴露；发布的 `fastMcpSafeToolCallbackProvider` 是 primary
   - managed raw provider 会按 configured server 分别包装；允许不同 server 下存在同名 raw tool，但 mapping 必须带 server name，Boot starter 会自动从 `fastmcp.safe.servers.<server>` 传入
+  - 如果应用提供 `SafeAuditSink` bean，starter 会把 safe tool call 记录为 `TOOL_CALL` audit event，只记录 injected argument names，不记录 injected values；外部 raw provider diagnostics 会记录为 `DIAGNOSTIC` audit event
   - 外部 raw provider bean 仍然可能存在；应用侧不要把 raw provider 集合直接交给模型
 
 ## 5. AgentScope 依赖核对规则
