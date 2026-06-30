@@ -70,6 +70,32 @@ class SafeMcpToolTest {
     }
 
     @Test
+    void synchronousRawInvokerFailureRecordsRawToolFailedAudit() {
+        List<SafeAuditEvent> auditEvents = new ArrayList<>();
+        RuntimeException rawFailure = new IllegalStateException("raw callback failed");
+        SafeMcpTool tool = new SafeMcpTool("test", orderToolSpec(),
+                (serverName, rawToolName, rawArguments, context) -> {
+                    throw rawFailure;
+                },
+                SafeMcpPolicies.allow(),
+                auditEvents::add);
+
+        CompletionException exception = assertThrows(CompletionException.class,
+                () -> tool.callAsync(
+                        Map.of("status", "paid"),
+                        SafeToolCallContext.builder().userId("user-1").tenantId("tenant-1").build())
+                        .toCompletableFuture()
+                        .join());
+
+        assertEquals(rawFailure, exception.getCause());
+        assertEquals(1, auditEvents.size());
+        SafeAuditEvent event = auditEvents.get(0);
+        assertFalse(event.success());
+        assertEquals("RAW_TOOL_FAILED", event.errorCode());
+        assertEquals("allow", event.policyDecision());
+    }
+
+    @Test
     void rejectsModelSuppliedProtectedRawArgument() {
         SafeMcpTool tool = new SafeMcpTool("test", orderToolSpec(),
                 (serverName, rawToolName, rawArguments, context) -> CompletableFuture.completedFuture(

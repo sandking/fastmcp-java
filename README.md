@@ -251,6 +251,39 @@ The reusable Spring Boot binding code lives in
 `FastMcpSafeProperties` and `FastMcpSafeConfigurationFactory`, but it is not a
 standalone Agent framework starter and does not create MCP clients by itself.
 
+## Production integration checklist
+
+Production validation does not require FastMCP Java to implement the MCP
+protocol. It validates that the safety wrapper remains the only model-facing
+tool path when Spring AI, AgentScope, and the underlying MCP SDKs run against a
+real MCP service.
+
+Before using a configured server in production:
+
+- Verify the model-facing tool list contains only virtual names such as
+  `get_my_orders`, never raw MCP names such as `getOrdersByUserId` or
+  `mcp__orders__getOrdersByUserId`.
+- Verify virtual input schemas contain only model-fillable business arguments,
+  and do not expose protected arguments such as `userId`, `tenantId`, `role`, or
+  `includeDeleted`.
+- Resolve protected values from server-side runtime context through resolver
+  beans; do not put sensitive values into `fastmcp.safe.*` configuration.
+- For Spring AI production deployments, set
+  `fastmcp.safe.diagnostics.external-raw-provider=fail` unless the application
+  intentionally uses the documented external-provider compatibility path.
+- Pass the safe provider, for example `fastMcpSafeToolCallbackProvider`, to the
+  model. Do not pass every `ToolCallbackProvider` bean as a collection unless raw
+  providers have been filtered out.
+- Configure a `SafeAuditSink` and verify audits contain virtual/raw tool names,
+  caller/tenant identifiers, and injected argument names, but not injected
+  argument values.
+- If the application streams tool events to AG-UI, CopilotKit, logs, or a
+  frontend, verify those events do not leak raw tool names, injected values, raw
+  arguments, or backend-only metadata.
+- Run real MCP smoke tests from private deployment configuration only. Do not
+  commit real company domains, real MCP endpoints, credentials, or business tool
+  names to this repository.
+
 ## Build
 
 ```bash

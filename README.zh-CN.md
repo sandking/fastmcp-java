@@ -239,6 +239,32 @@ starter 或应用自身提供 `Toolkit`；本库不负责创建 AgentScope agent
 `FastMcpSafeProperties` 和 `FastMcpSafeConfigurationFactory`，但它不是独立的
 Agent 框架 starter，也不会自行创建 MCP client。
 
+## 生产接入检查清单
+
+生产验证并不要求 FastMCP Java 自己实现 MCP 协议。它要验证的是：当 Spring AI、
+AgentScope 和底层 MCP SDK 连接真实 MCP 服务时，安全包装层仍然是唯一面向模型的
+tool 路径。
+
+在生产使用某个配置 server 前，应至少核对：
+
+- 模型可见 tool 列表只包含 `get_my_orders` 这类 virtual names，不包含
+  `getOrdersByUserId` 或 `mcp__orders__getOrdersByUserId` 这类 raw MCP names。
+- virtual input schema 只包含模型可填写的业务参数，不暴露 `userId`、`tenantId`、
+  `role`、`includeDeleted` 等 protected arguments。
+- protected values 必须通过 resolver bean 从服务端运行时上下文解析，不写进
+  `fastmcp.safe.*` 配置。
+- Spring AI 生产部署建议设置
+  `fastmcp.safe.diagnostics.external-raw-provider=fail`，除非应用明确使用文档里的
+  external-provider 兼容路径。
+- 模型侧只接收 safe provider，例如 `fastMcpSafeToolCallbackProvider`；不要把所有
+  `ToolCallbackProvider` bean 作为集合直接交给模型，除非已经过滤掉 raw providers。
+- 配置 `SafeAuditSink`，并确认 audit 只包含 virtual/raw tool names、caller/tenant
+  标识和 injected argument names，不包含 injected argument values。
+- 如果应用会把 tool events 流式发送到 AG-UI、CopilotKit、日志或前端，需要确认这些
+  event 不泄露 raw tool names、注入值、raw arguments 或后端内部 metadata。
+- 真实 MCP smoke test 只应使用私有部署配置执行。不要把真实公司域名、真实 MCP
+  endpoint、凭据或业务 tool 名称提交到本仓库。
+
 ## 构建
 
 ```bash
