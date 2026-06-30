@@ -27,9 +27,10 @@ When adapting this example to an application, inject the safe provider named
 `fastMcpSafeToolCallbackProvider` into the model wiring. Do not pass every
 `ToolCallbackProvider` bean to the model unless raw providers have been filtered
 out. The starter defaults to
-`fastmcp.safe.diagnostics.external-raw-provider=fail`; this example opts into
-`warn` only because it intentionally demonstrates wrapping an existing external
-raw provider.
+`fastmcp.safe.diagnostics.external-raw-provider=warn`; this example keeps the
+setting explicit because it intentionally demonstrates wrapping an existing
+external raw provider. Applications that want fail-closed production hardening
+can opt into `fail`.
 
 Run it from the repository root with JDK 17 or newer:
 

@@ -129,7 +129,6 @@ class FastMcpSafeAutoConfigurationTest {
         AUDIT_EVENTS.clear();
 
         contextRunner.withUserConfiguration(RawToolConfiguration.class, AuditSinkConfiguration.class)
-                .withPropertyValues("fastmcp.safe.diagnostics.external-raw-provider=warn")
                 .run(context -> {
                     assertThat(context).hasNotFailed();
                     assertThat(context).hasBean("fastMcpSafeToolCallbackProvider");
@@ -259,9 +258,8 @@ class FastMcpSafeAutoConfigurationTest {
     }
 
     @Test
-    void warnDiagnosticsAllowsExternalRawProvider(CapturedOutput output) {
+    void defaultWarnDiagnosticsAllowsExternalRawProvider(CapturedOutput output) {
         contextRunner.withUserConfiguration(RawToolConfiguration.class)
-                .withPropertyValues("fastmcp.safe.diagnostics.external-raw-provider=warn")
                 .run(context -> {
                     assertThat(context).hasNotFailed();
                     assertThat(context).hasBean("fastMcpSafeToolCallbackProvider");

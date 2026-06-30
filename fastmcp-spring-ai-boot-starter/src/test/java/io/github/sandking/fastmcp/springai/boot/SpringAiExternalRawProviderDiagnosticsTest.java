@@ -11,18 +11,15 @@ import org.junit.jupiter.api.Test;
 
 class SpringAiExternalRawProviderDiagnosticsTest {
     @Test
-    void defaultModeRecordsDiagnosticAuditAndThrows() {
+    void defaultModeRecordsDiagnosticAuditAndWarns() {
         SpringAiExternalRawProviderDiagnostics diagnostics = SpringAiExternalRawProviderDiagnostics.from(
                 new FastMcpSafeProperties());
         List<SafeAuditEvent> events = new ArrayList<>();
 
-        assertThatThrownBy(() -> diagnostics.diagnose(List.of("rawOrderToolProvider"), events::add))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("External raw Spring AI ToolCallbackProvider beans are present")
-                .hasMessageContaining("rawOrderToolProvider");
+        diagnostics.diagnose(List.of("rawOrderToolProvider"), events::add);
 
         assertThat(events).hasSize(1);
-        assertThat(events.get(0).details()).containsEntry("mode", "fail");
+        assertThat(events.get(0).details()).containsEntry("mode", "warn");
     }
 
     @Test
