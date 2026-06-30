@@ -42,14 +42,20 @@ MCP raw tools
   clients，并且只发布 primary 的安全 `ToolCallbackProvider`
 - Unit tests 和 GitHub Actions CI
 
-尚未实现：
+不属于本 SDK 当前职责，除非未来明确新增对应模块：
 
-- 本库自己的 MCP server implementation
-- AG-UI SSE stream 和 tool event 链路的端到端验证
+- 本库自有 MCP server implementation、公开 MCP 服务列表或真实生产 MCP endpoint
+- 应用层 AG-UI、CopilotKit、SSE tool event、日志和前端事件 payload；本 SDK 不产生也不审查这些事件
 - Resources 和 prompts
 - Spring 之外的普通 classpath package scanning
-- 完整 authentication flow、OAuth、secret lifecycle 和 production middleware
-- Protocol conformance tests
+- 宿主应用或 MCP server 自己负责的完整 authentication flow、OAuth、secret lifecycle 和 production middleware
+- 面向第三方 MCP server 的完整 protocol conformance tests
+
+本仓库测试使用本地 fake MCP server 验证 SDK contract：managed client 创建、
+初始化和工具列表、HTTP headers、query params、cookie/session 行为、
+virtual tool schema、protected-argument injection，以及 raw tool 隐藏。
+接入方负责在自己的私有部署上执行真实 MCP smoke test，并负责 AG-UI、前端
+事件和日志侧的泄露检查。
 
 ## Safe core
 
@@ -239,11 +245,11 @@ starter 或应用自身提供 `Toolkit`；本库不负责创建 AgentScope agent
 `FastMcpSafeProperties` 和 `FastMcpSafeConfigurationFactory`，但它不是独立的
 Agent 框架 starter，也不会自行创建 MCP client。
 
-## 生产接入检查清单
+## 应用接入检查清单
 
-生产验证并不要求 FastMCP Java 自己实现 MCP 协议。它要验证的是：当 Spring AI、
-AgentScope 和底层 MCP SDK 连接真实 MCP 服务时，安全包装层仍然是唯一面向模型的
-tool 路径。
+这是应用侧清单，不是 FastMCP Java 已提供完整生产 MCP 平台的声明。生产验证并不要求
+本 SDK 自己实现 MCP 协议。它要验证的是：当 Spring AI、AgentScope 和底层 MCP SDK
+连接真实 MCP 服务时，安全包装层仍然是唯一面向模型的 tool 路径。
 
 在生产使用某个配置 server 前，应至少核对：
 
@@ -386,7 +392,8 @@ ToolCallbackProvider safeProvider = FastMcpSpringAiTools.wrap(rawProvider, List.
 - `fastmcp-examples/spring-ai-boot-starter`：绑定 `fastmcp.safe.*`，声明
   `currentUserId` / `currentTenantId` 等 resolver bean，并验证 starter 基于已有 raw
   provider 或本地 fake `streamable-http` MCP server 发布 primary 的
-  `fastMcpSafeToolCallbackProvider`，模型只看到 safe virtual tool。
+  `fastMcpSafeToolCallbackProvider`，模型只看到 safe virtual tool。示例不要求也不发布
+  真实 MCP endpoint；部署相关 smoke test 由接入应用负责。
 
 运行全部示例：
 
