@@ -121,7 +121,7 @@ Spring AI Boot applications can bind the same idea through
 <dependency>
     <groupId>io.github.sandking</groupId>
     <artifactId>fastmcp-spring-ai-boot-starter</artifactId>
-    <version>0.1.0-SNAPSHOT</version>
+    <version>0.1.0</version>
 </dependency>
 ```
 
@@ -226,7 +226,7 @@ the raw wrappers are not published as Spring beans.
 <dependency>
     <groupId>io.github.sandking</groupId>
     <artifactId>fastmcp-agentscope-boot-starter</artifactId>
-    <version>0.1.0-SNAPSHOT</version>
+    <version>0.1.0</version>
 </dependency>
 ```
 

@@ -127,7 +127,7 @@ public final class SafeMcpServerConfiguration {
         private Duration requestTimeout;
         private Duration initializationTimeout;
         private String clientName = "fastmcp-java";
-        private String clientVersion = "0.1.0-SNAPSHOT";
+        private String clientVersion = "0.1.0";
         private final List<String> arguments = new ArrayList<>();
         private final Map<String, String> environment = new LinkedHashMap<>();
         private final Map<String, String> httpHeaders = new LinkedHashMap<>();
