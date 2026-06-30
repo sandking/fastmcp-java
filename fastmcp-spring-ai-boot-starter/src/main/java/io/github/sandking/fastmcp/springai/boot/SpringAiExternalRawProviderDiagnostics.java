@@ -45,7 +45,7 @@ final class SpringAiExternalRawProviderDiagnostics {
     }
 
     private static String normalize(String mode) {
-        String normalizedMode = mode == null ? "warn" : mode.trim().toLowerCase(Locale.ROOT);
+        String normalizedMode = mode == null ? "fail" : mode.trim().toLowerCase(Locale.ROOT);
         if (!"warn".equals(normalizedMode) && !"fail".equals(normalizedMode) && !"off".equals(normalizedMode)) {
             throw new IllegalArgumentException("Unsupported fastmcp.safe.diagnostics.external-raw-provider: " + mode);
         }

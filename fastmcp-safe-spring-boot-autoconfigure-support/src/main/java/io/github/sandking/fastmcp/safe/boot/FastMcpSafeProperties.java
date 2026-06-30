@@ -162,14 +162,14 @@ public class FastMcpSafeProperties {
     }
 
     public static class Diagnostics {
-        private String externalRawProvider = "warn";
+        private String externalRawProvider = "fail";
 
         public String getExternalRawProvider() {
             return externalRawProvider;
         }
 
         public void setExternalRawProvider(String externalRawProvider) {
-            this.externalRawProvider = externalRawProvider == null ? "warn" : externalRawProvider;
+            this.externalRawProvider = externalRawProvider == null ? "fail" : externalRawProvider;
         }
     }
 

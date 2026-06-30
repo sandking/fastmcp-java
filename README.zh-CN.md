@@ -182,8 +182,9 @@ Spring AI `ToolCallbackProvider` bean 仍然兼容，但应用侧应该把 safe 
 
 外部 provider diagnostics 可以显式暴露这条兼容路径的风险。这是保守诊断：外部
 Spring AI `ToolCallbackProvider` bean 是 raw provider 暴露的主要风险，也可能包含
-非 raw 的业务 provider。默认值是 `warn`；生产环境建议使用 `fail`，至少保留默认
-warning：
+非 raw 的业务 provider。默认值是 `fail`；只有当应用明确使用外部 provider
+兼容路径，并且仍能保证模型侧接收的是 `fastMcpSafeToolCallbackProvider` 而不是 raw
+provider 时，才应显式设置 `warn` 或 `off`：
 
 ```yaml
 fastmcp:
@@ -259,9 +260,8 @@ Agent 框架 starter，也不会自行创建 MCP client。
   `role`、`includeDeleted` 等 protected arguments。
 - protected values 必须通过 resolver bean 从服务端运行时上下文解析，不写进
   `fastmcp.safe.*` 配置。
-- Spring AI 生产部署建议设置
-  `fastmcp.safe.diagnostics.external-raw-provider=fail`，除非应用明确使用文档里的
-  external-provider 兼容路径。
+- Spring AI 生产部署应设置 `fastmcp.safe.diagnostics.external-raw-provider=fail`，或保留
+  默认 fail-closed 行为；除非应用明确使用文档里的 external-provider 兼容路径。
 - 模型侧只接收 safe provider，例如 `fastMcpSafeToolCallbackProvider`；不要把所有
   `ToolCallbackProvider` bean 作为集合直接交给模型，除非已经过滤掉 raw providers。
 - 配置 `SafeAuditSink`，并确认 audit 只包含 virtual/raw tool names、caller/tenant

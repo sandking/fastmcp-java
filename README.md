@@ -195,8 +195,9 @@ to the model.
 External provider diagnostics make that compatibility risk visible. This is a
 conservative diagnostic: external Spring AI `ToolCallbackProvider` beans are the
 main raw-provider exposure risk, although they may include non-raw business
-providers. The default is `warn`; production deployments should use `fail` or at
-least keep the default warning enabled:
+providers. The default is `fail`; set `warn` or `off` only when the application
+intentionally uses the external-provider compatibility path and still guarantees
+that models receive `fastMcpSafeToolCallbackProvider` instead of raw providers:
 
 ```yaml
 fastmcp:
@@ -279,8 +280,9 @@ Before using a configured server in production:
 - Resolve protected values from server-side runtime context through resolver
   beans; do not put sensitive values into `fastmcp.safe.*` configuration.
 - For Spring AI production deployments, set
-  `fastmcp.safe.diagnostics.external-raw-provider=fail` unless the application
-  intentionally uses the documented external-provider compatibility path.
+  `fastmcp.safe.diagnostics.external-raw-provider=fail` or keep the default
+  fail-closed behavior unless the application intentionally uses the documented
+  external-provider compatibility path.
 - Pass the safe provider, for example `fastMcpSafeToolCallbackProvider`, to the
   model. Do not pass every `ToolCallbackProvider` bean as a collection unless raw
   providers have been filtered out.

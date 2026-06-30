@@ -28,6 +28,7 @@ public final class FastMcpSpringAiBootExample {
 
     public static String[] safeOrderProperties() {
         return new String[] {
+                "fastmcp.safe.diagnostics.external-raw-provider=warn",
                 "fastmcp.safe.servers.orders.enabled=false",
                 "fastmcp.safe.servers.orders.transport=stdio",
                 "fastmcp.safe.servers.orders.command=node",
