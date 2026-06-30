@@ -12,7 +12,6 @@ import io.github.sandking.fastmcp.safe.SafeMcpPolicies;
 import io.github.sandking.fastmcp.safe.SafeMcpToolSpec;
 import io.github.sandking.fastmcp.safe.SafeToolCallContext;
 import io.github.sandking.fastmcp.safe.SafeToolResult;
-import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -75,9 +74,10 @@ public final class FastMcpSpringAiTools {
         Map<String, ToolCallback> rawTools = new LinkedHashMap<>();
         for (ToolCallback rawCallback : rawCallbacks) {
             Objects.requireNonNull(rawCallback, "rawCallback must not be null");
-            String rawServerName = originalServerName(rawCallback).orElse(defaultRawServerName);
-            putRawTool(rawTools, rawServerName, rawCallback.getToolDefinition().name(), rawCallback);
-            originalToolName(rawCallback).ifPresent(name -> putRawTool(rawTools, rawServerName, name, rawCallback));
+            SpringAiRawToolIdentity identity = SpringAiRawToolIdentity.from(rawCallback, defaultRawServerName);
+            putRawTool(rawTools, identity.serverName(), identity.definitionToolName(), rawCallback);
+            identity.originalToolName().ifPresent(name ->
+                    putRawTool(rawTools, identity.serverName(), name, rawCallback));
         }
 
         List<ToolCallback> safeCallbacks = new ArrayList<>();
@@ -91,27 +91,6 @@ public final class FastMcpSpringAiTools {
             safeCallbacks.add(new SafeSpringAiToolCallback(rawCallback, safeMapping, auditSink));
         }
         return ToolCallbackProvider.from(safeCallbacks);
-    }
-
-    private static java.util.Optional<String> originalToolName(ToolCallback rawCallback) {
-        return reflectedString(rawCallback, "getOriginalToolName");
-    }
-
-    private static java.util.Optional<String> originalServerName(ToolCallback rawCallback) {
-        return reflectedString(rawCallback, "getOriginalServerName");
-    }
-
-    private static java.util.Optional<String> reflectedString(ToolCallback rawCallback, String methodName) {
-        try {
-            Method method = rawCallback.getClass().getMethod(methodName);
-            Object value = method.invoke(rawCallback);
-            if (value instanceof String && !((String) value).trim().isEmpty()) {
-                return java.util.Optional.of((String) value);
-            }
-            return java.util.Optional.empty();
-        } catch (ReflectiveOperationException exception) {
-            return java.util.Optional.empty();
-        }
     }
 
     private static String rawKey(String rawServerName, String rawToolName) {

@@ -54,8 +54,20 @@ public final class SafeMcpTool {
                 recordAudit(safeContext, false, exception.code(), policyDecision);
                 return failed(exception);
             }
-            CompletionStage<RawToolResult> rawResult = rawToolInvoker.callAsync(spec.rawServerName(), spec.rawToolName(),
-                    Collections.unmodifiableMap(new LinkedHashMap<>(rawArguments)), safeContext);
+            CompletionStage<RawToolResult> rawResult;
+            try {
+                rawResult = rawToolInvoker.callAsync(spec.rawServerName(), spec.rawToolName(),
+                        Collections.unmodifiableMap(new LinkedHashMap<>(rawArguments)), safeContext);
+                if (rawResult == null) {
+                    SafeMcpException exception = new SafeMcpException("RAW_TOOL_FAILED",
+                            "Raw tool invoker returned null");
+                    recordAudit(safeContext, false, exception.code(), "allow");
+                    return failed(exception);
+                }
+            } catch (RuntimeException exception) {
+                recordAudit(safeContext, false, "RAW_TOOL_FAILED", "allow");
+                return failed(exception);
+            }
             return rawResult.handle((result, exception) -> {
                 if (exception != null) {
                     Throwable cause = unwrap(exception);

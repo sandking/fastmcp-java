@@ -21,6 +21,13 @@ It covers:
 - a localhost fake MCP server exposing raw `searchCatalogByTenant`, while the model
   only sees the safe virtual `search_catalog(keyword)` callback
 
+When adapting this example to an application, inject the safe provider named
+`fastMcpSafeToolCallbackProvider` into the model wiring. Do not pass every
+`ToolCallbackProvider` bean to the model unless raw providers have been filtered
+out. For production Spring AI deployments, prefer
+`fastmcp.safe.diagnostics.external-raw-provider=fail` so accidental external raw
+providers fail startup instead of relying on logs.
+
 Run it from the repository root with JDK 17 or newer:
 
 ```bash
