@@ -11,6 +11,18 @@ import org.junit.jupiter.api.Test;
 
 class SpringAiExternalRawProviderDiagnosticsTest {
     @Test
+    void defaultModeRecordsDiagnosticAuditAndWarns() {
+        SpringAiExternalRawProviderDiagnostics diagnostics = SpringAiExternalRawProviderDiagnostics.from(
+                new FastMcpSafeProperties());
+        List<SafeAuditEvent> events = new ArrayList<>();
+
+        diagnostics.diagnose(List.of("rawOrderToolProvider"), events::add);
+
+        assertThat(events).hasSize(1);
+        assertThat(events.get(0).details()).containsEntry("mode", "warn");
+    }
+
+    @Test
     void failModeRecordsDiagnosticAuditAndThrows() {
         SpringAiExternalRawProviderDiagnostics diagnostics = SpringAiExternalRawProviderDiagnostics.from(
                 properties("fail"));

@@ -72,27 +72,30 @@ class FastMcpSafeAutoConfigurationTest {
 
     @Test
     void createsPrimarySafeToolCallbackProviderFromConfiguredMappings() {
-        contextRunner.withUserConfiguration(RawToolConfiguration.class).run(context -> {
-            assertThat(context).hasBean("fastMcpSafeToolCallbackProvider");
-            assertThat(context.getBean(ToolCallbackProvider.class))
-                    .isSameAs(context.getBean("fastMcpSafeToolCallbackProvider"));
+        contextRunner.withUserConfiguration(RawToolConfiguration.class)
+                .withPropertyValues("fastmcp.safe.diagnostics.external-raw-provider=off")
+                .run(context -> {
+                    assertThat(context).hasBean("fastMcpSafeToolCallbackProvider");
+                    assertThat(context.getBean(ToolCallbackProvider.class))
+                            .isSameAs(context.getBean("fastMcpSafeToolCallbackProvider"));
 
-            ToolCallbackProvider safeProvider = context.getBean("fastMcpSafeToolCallbackProvider",
-                    ToolCallbackProvider.class);
-            ToolCallback safeTool = safeProvider.getToolCallbacks()[0];
+                    ToolCallbackProvider safeProvider = context.getBean("fastMcpSafeToolCallbackProvider",
+                            ToolCallbackProvider.class);
+                    ToolCallback safeTool = safeProvider.getToolCallbacks()[0];
 
-            assertThat(safeTool.getToolDefinition().name()).isEqualTo("get_my_orders");
-            assertThat(safeTool.getToolDefinition().description())
-                    .isEqualTo("Get orders for the authenticated user.");
-            assertThat(safeTool.getToolDefinition().inputSchema()).doesNotContain("userId");
+                    assertThat(safeTool.getToolDefinition().name()).isEqualTo("get_my_orders");
+                    assertThat(safeTool.getToolDefinition().description())
+                            .isEqualTo("Get orders for the authenticated user.");
+                    assertThat(safeTool.getToolDefinition().inputSchema()).doesNotContain("userId");
 
-            String result = safeTool.call("{\"status\":\"PAID\"}", new ToolContext(Map.of("userId", "user-123")));
+                    String result = safeTool.call("{\"status\":\"PAID\"}",
+                            new ToolContext(Map.of("userId", "user-123")));
 
-            CapturingToolCallback rawTool = context.getBean(CapturingToolCallback.class);
-            assertThat(result).isEqualTo("orders for user-123 with status PAID");
-            assertThat(rawTool.lastInput()).containsEntry("orderStatus", "PAID")
-                    .containsEntry("userId", "user-123");
-        });
+                    CapturingToolCallback rawTool = context.getBean(CapturingToolCallback.class);
+                    assertThat(result).isEqualTo("orders for user-123 with status PAID");
+                    assertThat(rawTool.lastInput()).containsEntry("orderStatus", "PAID")
+                            .containsEntry("userId", "user-123");
+                });
     }
 
     @Test
@@ -145,7 +148,9 @@ class FastMcpSafeAutoConfigurationTest {
     @Test
     void wrapsExternalRawProviderWhenManagedClientIsDisabled() {
         contextRunner.withUserConfiguration(RawToolConfiguration.class)
-                .withPropertyValues("fastmcp.safe.servers.orders.enabled=false")
+                .withPropertyValues(
+                        "fastmcp.safe.diagnostics.external-raw-provider=off",
+                        "fastmcp.safe.servers.orders.enabled=false")
                 .run(context -> {
                     ToolCallbackProvider safeProvider = context.getBean("fastMcpSafeToolCallbackProvider",
                             ToolCallbackProvider.class);
@@ -254,10 +259,11 @@ class FastMcpSafeAutoConfigurationTest {
 
     @Test
     void defaultWarnDiagnosticsAllowsExternalRawProvider(CapturedOutput output) {
-        contextRunner.withUserConfiguration(RawToolConfiguration.class).run(context -> {
-            assertThat(context).hasNotFailed();
-            assertThat(context).hasBean("fastMcpSafeToolCallbackProvider");
-        });
+        contextRunner.withUserConfiguration(RawToolConfiguration.class)
+                .run(context -> {
+                    assertThat(context).hasNotFailed();
+                    assertThat(context).hasBean("fastMcpSafeToolCallbackProvider");
+                });
 
         assertThat(output).contains("External raw Spring AI ToolCallbackProvider beans are present")
                 .contains("fastMcpSafeToolCallbackProvider");

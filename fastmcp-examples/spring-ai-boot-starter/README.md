@@ -13,6 +13,8 @@ existing raw ToolCallbackProvider bean
 It covers:
 
 - `fastmcp.safe.*` binding into `SafeMcpConfiguration`
+- explicit `fastmcp.safe.diagnostics.external-raw-provider=warn` for the
+  documented external raw provider compatibility path
 - resolver bean names such as `currentUserId` and `currentTenantId`
 - a primary safe `ToolCallbackProvider` published by the starter
 - raw provider remaining present but not being the provider selected by type
@@ -24,9 +26,11 @@ It covers:
 When adapting this example to an application, inject the safe provider named
 `fastMcpSafeToolCallbackProvider` into the model wiring. Do not pass every
 `ToolCallbackProvider` bean to the model unless raw providers have been filtered
-out. For production Spring AI deployments, prefer
-`fastmcp.safe.diagnostics.external-raw-provider=fail` so accidental external raw
-providers fail startup instead of relying on logs.
+out. The starter defaults to
+`fastmcp.safe.diagnostics.external-raw-provider=warn`; this example keeps the
+setting explicit because it intentionally demonstrates wrapping an existing
+external raw provider. Applications that want fail-closed production hardening
+can opt into `fail`.
 
 Run it from the repository root with JDK 17 or newer:
 
