@@ -48,14 +48,23 @@ Implemented now:
   `sse`, or `stdio`, and publishes only the primary safe `ToolCallbackProvider`
 - Unit tests and GitHub Actions CI
 
-Not implemented yet:
+Outside this SDK's current ownership unless a future module explicitly scopes it:
 
-- FastMCP-owned MCP server implementation
-- End-to-end validation for AG-UI SSE stream and the tool event chain
+- FastMCP-owned MCP server implementation, public MCP service catalogs, or real
+  production MCP endpoints
+- Application-level AG-UI, CopilotKit, SSE tool-event streams, logs, and frontend
+  event payloads; this SDK does not emit or inspect those events
 - Resources and prompts
 - Plain classpath package scanning outside Spring
 - Full authentication flows, OAuth, secret lifecycle, and production middleware
-- Protocol conformance tests
+  owned by the consuming application or MCP server
+- Full protocol conformance tests for third-party MCP servers
+
+This repository's tests use local fake MCP servers to validate the SDK contract:
+managed client creation, initialization and tool listing, HTTP headers, query
+params, cookie/session behavior, virtual tool schemas, protected-argument
+injection, and raw-tool hiding. Consuming applications own real MCP smoke tests
+against their private deployments, plus any AG-UI/frontend/log leak checks.
 
 ## Safe core
 
@@ -251,12 +260,13 @@ The reusable Spring Boot binding code lives in
 `FastMcpSafeProperties` and `FastMcpSafeConfigurationFactory`, but it is not a
 standalone Agent framework starter and does not create MCP clients by itself.
 
-## Production integration checklist
+## Application integration checklist
 
-Production validation does not require FastMCP Java to implement the MCP
-protocol. It validates that the safety wrapper remains the only model-facing
-tool path when Spring AI, AgentScope, and the underlying MCP SDKs run against a
-real MCP service.
+This is an application-owned checklist, not a claim that FastMCP Java ships a
+complete production MCP platform. Production validation does not require this
+SDK to implement the MCP protocol. It validates that the safety wrapper remains
+the only model-facing tool path when Spring AI, AgentScope, and the underlying
+MCP SDKs run against a real MCP service.
 
 Before using a configured server in production:
 
@@ -414,10 +424,10 @@ integration paths:
   `ToolContext`.
 - `fastmcp-examples/spring-ai-boot-starter`: binds `fastmcp.safe.*`, declares resolver
   beans such as `currentUserId`, and verifies that the starter publishes the
-  primary `fastMcpSafeToolCallbackProvider` from an existing raw provider. The
-  managed MCP client path, including streamable HTTP transport and per-server raw
-  provider scoping, is covered by starter tests until a real MCP server example is
-  added.
+  primary `fastMcpSafeToolCallbackProvider` from an existing raw provider and a
+  local fake `streamable-http` MCP server. The examples do not require or publish
+  real MCP endpoints; deployment-specific smoke tests belong to consuming
+  applications.
 
 Run all examples with:
 
